@@ -60,8 +60,8 @@ every push to `src/`, published as the GitHub release `helper`), linked from the
   between battles: watcher → queue, website inbox every 2 min, queue steps, unmatched live logs.
   A running decode is killed the moment a battle starts and redone later. One instance only
   (holds local port 48111). Log: `staging/logs/helper.log` (rotating).
-- **install / doctor** — `install` writes the config and a Task Scheduler logon task
-  (`conhost.exe --headless wt-helper.exe run`, normal rights); `doctor` checks the decoder, share,
+- **install / doctor** — `install` writes the config, adds `HKCU\…\Run\wt-helper`
+  (`conhost.exe --headless wt-helper.exe run`; no admin rights needed — a logon task would) and starts it; `doctor` checks the decoder, share,
   staging, Replays folder, website key, 8111 and the queue.
 - Next: **install_catalogue** (English names/prices from the install) and **los** (terrain from
   the install, stays on the PC; only results go to the site).

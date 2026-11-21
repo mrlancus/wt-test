@@ -1,4 +1,4 @@
-"""`wt-helper install`: write the config and start the service at every logon (Windows Task Scheduler)."""
+"""`wt-helper install`: write the config and start the service at every logon (the user's Run key: no admin rights)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-TASK = "wt-helper"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+NAME = "wt-helper"
 DEFAULT_URL = "https://wt-analytics.lancus.workers.dev"
 
 
@@ -32,14 +33,20 @@ def write_config(path: Path, share: str, key: str, user_id: str, url: str, stagi
 
 
 def register_logon_task() -> str:
-    """Runs `wt-helper run` at logon, hidden (conhost --headless), at normal user rights."""
+    """Runs `wt-helper run` at every logon, hidden (conhost --headless), and starts it now."""
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise RuntimeError("autostart is set up by the Windows exe (wt-helper.exe install)")
+    import winreg
+
     command = f'conhost.exe --headless "{sys.executable}" run'
-    subprocess.run(["schtasks", "/Create", "/F", "/TN", TASK, "/SC", "ONLOGON", "/RL", "LIMITED", "/TR", command], check=True, capture_output=True)
-    subprocess.run(["schtasks", "/Run", "/TN", TASK], check=True, capture_output=True)
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, NAME, 0, winreg.REG_SZ, command)
+    subprocess.Popen([sys.executable, "run"], creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
     return command
 
 
 def remove_logon_task() -> None:
-    subprocess.run(["schtasks", "/Delete", "/F", "/TN", TASK], check=True, capture_output=True)
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.DeleteValue(key, NAME)
