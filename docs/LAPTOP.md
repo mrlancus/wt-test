@@ -4,12 +4,11 @@ desk-hub only stores files for wt-analytics; no processing runs there, so Klippe
 starved. Samba uses a few tens of MB of RAM and no CPU while idle. Nothing in the desk-hub
 project itself changes. Everything below runs over SSH (`ssh deskhub@deskhub.local`).
 
+No IP addresses anywhere: the PC connects to `deskhub.local`, and the share accepts only private
+home-network addresses (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), which never change and can't
+come from the internet.
+
 ## 1. Look before changing anything
-Your LAN range (desk-hub's address e.g. `192.168.1.40/24` → range `192.168.1.0/24`; the range stays
-valid when desk-hub's own address changes):
-```bash
-ip -4 -brief addr
-```
 Disks and free space — pick the big one for the share:
 ```bash
 df -h -x tmpfs -x devtmpfs
@@ -20,12 +19,9 @@ systemctl is-active smbd; testparm -s 2>/dev/null | grep '^\['
 ```
 
 ## 2. Install and create the share
-Set these two for your machine first (same SSH session):
+Set the folder on the big disk first (same SSH session):
 ```bash
 WT_DIR=/srv/wt
-```
-```bash
-WT_LAN=192.168.1.0/24
 ```
 Install Samba (small; does not touch Klipper):
 ```bash
@@ -48,7 +44,7 @@ Back up the config, then add the share (LAN only, no guests, SMB3 or newer):
 sudo cp -n /etc/samba/smb.conf /etc/samba/smb.conf.before-wt
 ```
 ```bash
-printf '\n[wt]\n   path = %s\n   valid users = wtshare\n   force user = wtshare\n   read only = no\n   browseable = no\n   guest ok = no\n   create mask = 0640\n   directory mask = 0750\n   server min protocol = SMB3\n   hosts allow = 127.0.0.1 %s\n   hosts deny = 0.0.0.0/0\n' "$WT_DIR" "$WT_LAN" | sudo tee -a /etc/samba/smb.conf
+printf '\n[wt]\n   path = %s\n   valid users = wtshare\n   force user = wtshare\n   read only = no\n   browseable = no\n   guest ok = no\n   create mask = 0640\n   directory mask = 0750\n   server min protocol = SMB3\n   hosts allow = 127.0.0.1 192.168. 10. 172.16.0.0/12\n   hosts deny = 0.0.0.0/0\n' "$WT_DIR" | sudo tee -a /etc/samba/smb.conf
 ```
 Check it (must print no errors, and a `[wt]` section):
 ```bash
@@ -58,9 +54,9 @@ Start it now and at boot:
 ```bash
 sudo systemctl enable --now smbd && sudo systemctl restart smbd
 ```
-If the firewall is on (`sudo ufw status` says active), allow Samba from the LAN only:
+If the firewall is on (`sudo ufw status` says active), allow Samba from home networks only:
 ```bash
-sudo ufw allow from "$WT_LAN" to any app Samba
+for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do sudo ufw allow from $net to any app Samba; done
 ```
 Test the login locally (enter the `wtshare` password; should print `.` and `..`):
 ```bash
