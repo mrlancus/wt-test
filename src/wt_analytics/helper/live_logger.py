@@ -218,8 +218,8 @@ class LiveLogger:
                 found[path] = js
         (battle.folder / "discovery.json").write_text(json.dumps(found), encoding="utf-8")
         for endpoint in sorted({m for text in found.values() for m in _JS_ENDPOINT.findall(text)}):
-            if endpoint not in self.rates and endpoint not in _NOT_POLLED:
-                self.rates[endpoint] = 1  # unknown endpoint: record it slowly rather than miss it
+            if endpoint not in self.rates and endpoint not in _NOT_POLLED and _json(self._http.get_text(endpoint)) is not None:
+                self.rates[endpoint] = 1  # unknown JSON endpoint: record it slowly rather than miss it
                 log.info("discovered endpoint %s", endpoint)
 
     def _record(self, battle: _Battle) -> None:

@@ -25,7 +25,9 @@ def fake_game(battle: dict, hud_requests: list) -> http.server.ThreadingHTTPServ
             elif url.path == "/":
                 body = '<script src="app.js"></script>'
             elif url.path == "/app.js":
-                body = 'fetch("/new_thing.json?x")'
+                body = 'fetch("/new_thing.json?x"); x = "/a"'
+            elif url.path == "/a":
+                body = "<html>not an endpoint</html>"
             else:
                 body = {"valid": running, "path": url.path}
             data = (body if isinstance(body, str) else json.dumps(body)).encode()
@@ -65,7 +67,7 @@ def test_records_one_battle_from_start_to_end(tmp_path, monkeypatch):
     assert not logger.in_battle.is_set()
     assert battle["from"] <= meta["started"] <= battle["from"] + 0.3
     assert battle["to"] - 0.3 <= meta["ended"] <= battle["to"]
-    assert "/new_thing.json" in meta["endpoints"]  # discovered from the page's script
+    assert "/new_thing.json" in meta["endpoints"] and "/a" not in meta["endpoints"]  # found in the script; JSON only
     assert hud_requests == list(range(len(hud_requests))) and len(hud_requests) >= 3  # incremental ids
     with (folder / "state.jsonl.zst").open("rb") as f:
         records = [json.loads(line) for line in zstandard.ZstdDecompressor().stream_reader(f).read().splitlines()]

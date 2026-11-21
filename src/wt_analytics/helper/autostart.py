@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +42,9 @@ def register_logon_task() -> str:
     command = f'conhost.exe --headless "{sys.executable}" run'
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         winreg.SetValueEx(key, NAME, 0, winreg.REG_SZ, command)
-    subprocess.Popen([sys.executable, "run"], creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
+    # A onefile exe started from itself must unpack its own copy, or it dies when this one exits.
+    env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+    subprocess.Popen([sys.executable, "run"], env=env, creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
     return command
 
 
