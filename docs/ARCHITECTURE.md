@@ -42,7 +42,9 @@ every push to `src/`, published as the GitHub release `helper`), linked from the
 - **server_fetch** (`server_fetch.py`) — `GET https://wt-game-replays.warthunder.com/<session>/NNNN.wrpl`
   (302 to Gaijin's CDN, no login), parts until 404/403, one at a time, each part retried 6× with
   backoff (the CDN resets connections), resumable. If part 0 isn't there yet: retry after
-  2 min, 10 min, 30 min, 1 h, 3 h, 12 h, then decode from the client replay alone.
+  2 min, 10 min, 30 min, 1 h, 3 h, 12 h, then decode from the client replay alone (at once for
+  battles more than a day old: an imported backlog doesn't wait for server replays that are gone).
+  `ingest` skips files that aren't replays and says so.
 - **inbox** — replays uploaded on the website wait in R2 `inbox/`; the helper downloads them,
   queues them and deletes them from R2.
 - **live_logger** (`live_logger.py`) — one thread, one keep-alive connection, a minimal HTTP

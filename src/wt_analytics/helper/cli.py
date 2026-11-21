@@ -63,7 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest":
         for p in args.paths:
             for replay in sorted(p.glob("*.wrpl")) if p.is_dir() else [p]:
-                job = queue.add(replay)
+                try:
+                    job = queue.add(replay)
+                except Exception as e:  # not a replay we can read: say so and go on
+                    print(f"skipped {replay.name}: {e}")
+                    continue
                 print(f"queued {replay.name}: {job.map} {job.started} session {job.session}")
     else:
         print(f"{queue.pull_inbox()} uploads pulled from the website")

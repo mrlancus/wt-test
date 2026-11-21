@@ -31,6 +31,8 @@ from wt_analytics.pipeline.battle import DECODER_ID, Interrupted, decode_battle
 
 # Waits before asking for a server replay again when it is not there yet (s); then decode without it.
 SERVER_RETRY_DELAYS = (120, 600, 1800, 3600, 10800, 43200)
+#: A server replay still missing this long after the battle started is gone (old battles): don't wait.
+SERVER_GONE_AFTER_S = 86400
 RETRY_DELAY = 300  # after a transient failure (share offline, network)
 #: A live log belongs to a replay if it started within this many seconds of the replay's start time.
 LIVE_MATCH_S = 600
@@ -165,7 +167,8 @@ class Queue:
             return True
         except NotAvailableYet:
             job.server_attempts += 1
-            if job.server_attempts >= len(SERVER_RETRY_DELAYS):
+            old = time.time() - datetime.fromisoformat(job.started).timestamp() > SERVER_GONE_AFTER_S
+            if old or job.server_attempts >= len(SERVER_RETRY_DELAYS):
                 job.server = "missing"
                 return True
             job.next_try = time.time() + SERVER_RETRY_DELAYS[job.server_attempts]
