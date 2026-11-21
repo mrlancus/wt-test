@@ -1,71 +1,83 @@
-// wt-analytics Worker: the API, uploads and queue consumer. Static pages come from ../web (assets).
+// wt-analytics Worker: the website's API. Static pages come from ../web (assets).
+// Replays and full decoded data live on desk-hub; Cloudflare holds only what the website shows,
+// plus an inbox for replays uploaded on the site until the PC helper has taken them.
 
-import { handleJob, queueDecode } from "./jobs.js";
 import { readHeader } from "./replay.js";
-import { json, storeBuffer } from "./util.js";
-
-export { Pipeline } from "./pipeline.js";
+import { HttpError, json, recordFile } from "./util.js";
 
 const COOKIE = "wt_key";
 const MAX_REPLAY_BYTES = 95 * 1024 * 1024;
+const INBOX = "inbox/";
+// Columns the helper may set on a match row (see schema.sql).
+const MATCH_COLUMNS = [
+  "started", "map", "mission", "game_mode", "difficulty", "mission_mode", "duration_s", "replay_version", "mrank",
+  "vehicles", "country", "kills", "ai_kills", "assists", "deaths", "captures", "score", "result", "end_reason",
+  "server_status", "decode_status", "decoder", "schema_version", "decode_error",
+];
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-    if (url.pathname === "/api/login" && request.method === "POST") return login(request, env);
-    if (!(await authorised(request, env))) return json({ error: "login required" }, 401);
     try {
+      if (url.pathname === "/api/login" && request.method === "POST") return await login(request, env);
+      if (!(await authorised(request, env))) return json({ error: "login required" }, 401);
       return await route(request, env, url);
     } catch (e) {
       return json({ error: String(e.message || e) }, e.status || 500);
     }
   },
-
-  async queue(batch, env) {
-    for (const message of batch.messages) {
-      try {
-        await handleJob(env, message.body);
-        message.ack();
-      } catch (e) {
-        console.error("job failed", message.body, e);
-        message.retry({ delaySeconds: 60 * 2 ** Math.min(message.attempts, 6) });
-      }
-    }
-  },
 };
 
 async function route(request, env, url) {
-  const [, , resource, id, action] = url.pathname.split("/");
+  const [, , resource, id, ...rest] = url.pathname.split("/");
   const method = request.method;
-  if (resource === "upload" && method === "PUT") return uploadClientReplay(request, env, url);
+  if (rest.length) throw new HttpError(404, "not found");
+  if (resource === "upload" && method === "PUT") return upload(request, env);
+  if (resource === "inbox" && !id && method === "GET") return listInbox(env);
+  if (resource === "inbox" && id && method === "GET") return getInbox(env, id);
+  if (resource === "inbox" && id && method === "DELETE") return deleteInbox(env, id);
   if (resource === "matches" && !id && method === "GET") return listMatches(env, url);
-  if (resource === "matches" && id && !action && method === "GET") return getMatch(env, id);
-  if (resource === "matches" && id && action === "redecode" && method === "POST") {
-    await queueDecode(env, id);
-    return json({ ok: true });
-  }
+  if (resource === "matches" && id && method === "GET") return getMatch(env, id);
+  if (resource === "matches" && id && method === "PUT") return putMatch(request, env, id);
   if (resource === "health" && method === "GET") return health(env);
-  return json({ error: "not found" }, 404);
+  throw new HttpError(404, "not found");
 }
 
-/** PUT /api/upload?name=<file name> with the raw .wrpl as the body. Idempotent per session. */
-async function uploadClientReplay(request, env, url) {
+/** PUT /api/upload: a client .wrpl as the body. Kept in the inbox until the PC helper takes it. */
+async function upload(request, env) {
   const size = Number(request.headers.get("content-length"));
-  if (!(size > 0 && size <= MAX_REPLAY_BYTES)) throw Object.assign(new Error("body must be a replay under 95 MB"), { status: 413 });
+  if (!(size > 0 && size <= MAX_REPLAY_BYTES)) throw new HttpError(413, "body must be a replay under 95 MB");
   const buffer = await request.arrayBuffer();
   const header = readHeader(buffer);
-  if (header.part !== 0) throw Object.assign(new Error("upload client replays; server replay parts are fetched automatically"), { status: 400 });
+  if (header.part !== 0) throw new HttpError(400, "upload client replays; server replays are fetched automatically");
   const started = new Date(header.startTime * 1000).toISOString();
-  const key = `raw/replays/client/${started.slice(0, 10)}/${header.session}.wrpl`;
   const existing = await env.DB.prepare("SELECT decode_status FROM matches WHERE session = ?").bind(header.session).first();
-  await storeBuffer(env, key, buffer, { session: header.session, kind: "client" });
   if (!existing) {
+    const key = `${INBOX}${header.session}.wrpl`;
+    await recordFile(env, key, buffer, { session: header.session, kind: "inbox" });
     await env.DB.prepare("INSERT INTO matches (session, started, map, replay_version) VALUES (?, ?, ?, ?)")
       .bind(header.session, started, header.map, header.version).run();
-    await env.JOBS.send({ type: "fetch_server", session: header.session, attempt: 0 }, { delaySeconds: 60 });
   }
-  return json({ session: header.session, map: header.map, started, name: url.searchParams.get("name"), new: !existing });
+  return json({ session: header.session, map: header.map, started, new: !existing });
+}
+
+async function listInbox(env) {
+  const { objects } = await env.BUCKET.list({ prefix: INBOX });
+  return json({ files: objects.map((o) => ({ name: o.key.slice(INBOX.length), size: o.size })) });
+}
+
+async function getInbox(env, name) {
+  const object = await env.BUCKET.get(`${INBOX}${name}`);
+  if (!object) throw new HttpError(404, "not in the inbox");
+  return new Response(object.body, { headers: { "content-length": String(object.size), "content-type": "application/octet-stream" } });
+}
+
+async function deleteInbox(env, name) {
+  const key = `${INBOX}${name}`;
+  await env.BUCKET.delete(key);
+  await env.DB.prepare("DELETE FROM files WHERE key = ?").bind(key).run();
+  return json({ ok: true });
 }
 
 async function listMatches(env, url) {
@@ -76,9 +88,24 @@ async function listMatches(env, url) {
 
 async function getMatch(env, session) {
   const match = await env.DB.prepare("SELECT * FROM matches WHERE session = ?").bind(session).first();
-  if (!match) return json({ error: "no such match" }, 404);
-  const { results: files } = await env.DB.prepare("SELECT key, kind, size, sha256 FROM files WHERE session = ? ORDER BY key").bind(session).all();
-  return json({ match, files });
+  if (!match) throw new HttpError(404, "no such match");
+  return json({ match });
+}
+
+/** PUT /api/matches/<session> from the helper: the match row after the PC has processed the battle. */
+async function putMatch(request, env, session) {
+  if (!/^[0-9a-f]{16}$/.test(session)) throw new HttpError(400, "bad session id");
+  const body = await request.json();
+  const row = Object.fromEntries(MATCH_COLUMNS.filter((c) => c in body).map((c) => [c, body[c]]));
+  if (Array.isArray(row.vehicles)) row.vehicles = JSON.stringify(row.vehicles);
+  const names = Object.keys(row);
+  const placeholders = names.map(() => "?").join(", ");
+  const updates = names.map((n) => `${n} = excluded.${n}`).join(", ");
+  await env.DB.prepare(
+    `INSERT INTO matches (session${names.map((n) => `, ${n}`).join("")}) VALUES (?${names.length ? ", " : ""}${placeholders})
+     ON CONFLICT (session) DO UPDATE SET ${updates ? `${updates}, ` : ""}updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+  ).bind(session, ...names.map((n) => row[n])).run();
+  return json({ ok: true });
 }
 
 async function health(env) {
@@ -101,7 +128,7 @@ async function authorised(request, env) {
 
 async function login(request, env) {
   const { key } = await request.json().catch(() => ({}));
-  if (!key || !(await sameSecret(key, env.API_KEY))) return json({ error: "wrong key" }, 401);
+  if (!key || !(await sameSecret(key, env.API_KEY))) throw new HttpError(401, "wrong key");
   const cookie = `${COOKIE}=${encodeURIComponent(key)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`;
   return json({ ok: true }, 200, { "set-cookie": cookie });
 }

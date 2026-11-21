@@ -5,16 +5,18 @@ description = "Personal post-match analytics for War Thunder"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+wt-helper = "wt_analytics.helper.cli:main"
+
 [project.optional-dependencies]
-# PC helper app (Windows exe)
-helper = []
-# cloud pipeline container. The decoder is pinned to an exact release (see common/schema.py).
-pipeline = [
+# PC helper app (Windows exe): capture, decode, store on the share, publish summaries.
+# The decoder is pinned to an exact release (see common/schema.py).
+helper = [
   "heat3d-ext-warthunder @ git+https://github.com/Holdi601/3DHeat-Ext-WarThunder@b0ad09f0a3942670280719265416fce90affa5e1",  # v0.2.2
   "duckdb>=1.1",
   "numpy>=1.26",
+  "httpx>=0.27",
 ]
-
 dev = ["pytest>=8"]
 
 [tool.pytest.ini_options]

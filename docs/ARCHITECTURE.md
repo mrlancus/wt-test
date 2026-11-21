@@ -1,108 +1,96 @@
 # Architecture
 
-Decided 2026-11-21: **website-first**. Everything you look at is a private website on your
-Cloudflare account. The capture half runs in a small helper app on the gaming PC, which you
-download from that website. Old replays can also be dragged onto the site's Upload page.
+**Desk-hub stores, the PC works, Cloudflare shows.** (Decided 2026-11-21, replacing an earlier
+cloud-processing design: replays stay at home, Cloudflare gets only what the website needs.)
 
-## Why not a pure website
-A website cannot record the 8111 data while you play, cannot watch the `Replays` folder by
-itself, cannot read your game install, and Chrome restricts public sites calling `127.0.0.1`.
-So a helper app is unavoidable for capture. Everything else (processing, storage,
-viewing) lives in the cloud, which also takes the failing PC drives out of the picture.
+```
+Gaming PC (Windows)                      desk-hub laptop               Cloudflare (private site)
+┌──────────────────────────────┐  SMB    ┌───────────────────┐        ┌──────────────────────────┐
+│ wt-helper                    │ ──────► │ Samba share  W:\  │        │ Worker: API + web pages  │
+│  live_logger (8111)          │         │  wt/raw/…         │        │ D1: match rows           │
+│  replay_watcher              │         │  wt/decoded/…     │        │ R2: inbox (website       │
+│  server replay fetch         │         │  wt/manifest/…    │        │     uploads, until the   │
+│  decode (3DHeat, low prio)   │         └───────────────────┘        │     PC has them),        │
+│  local queue (staging, D:)   │ ── HTTPS: summaries, later viewer ──►│     later viewer packs   │
+│  los (terrain, local only)   │ ◄─ HTTPS: website uploads ────────── │     and derived tables   │
+└──────────────────────────────┘                                      └──────────────────────────┘
+```
+
+## Why this split
+- **Replays and full decoded tables** are large (~50–70 MB a battle) and only needed for
+  re-processing → the desk-hub share, which has plenty of disk. Desk-hub only serves files:
+  no processing there (it runs Klipper and must not be starved).
+- **Processing** needs the replays, and the PC has them already. Decoding a battle takes about
+  a minute at low priority after the battle; it pauses when a new battle starts.
+- **The website** needs only small data: match rows now; per-match viewer packs and derived
+  stat tables later (~1–5 MB a battle). That goes to Cloudflare so it works from the phone too.
+- The failing PC drives only ever hold a small queue (staging) of battles on their way to the share.
 
 ## Components
 
-### 1. Helper app (`wt-helper.exe`, Windows)
-Single-file exe built by GitHub Actions (PyInstaller) from `src/wt_analytics/helper/`.
-Installed once from the site's Downloads page; registers itself to start at log-in.
-- **live_logger** – polls 8111 at the configured rates and writes raw responses as
-  zstd JSONL into a local staging folder. Uploads only after the battle ends (rule 1).
-- **replay_watcher** – watches the game's `Replays` folder; once a `.wrpl` is complete
-  (size stable, file unlocked), queues it for upload. Reads the session id from the header
-  (u64 at offset 732) and tells the API, so the cloud can fetch the server replay.
-- **queue** – local, small, durable upload queue (atomic files + a tiny SQLite on the local
-  disk). Hash-verified uploads, retry with backoff, deletes local copies only after the
-  server confirms the hash. Survives offline periods.
-- **install_catalogue** – reads, from your own install, the small tables the decoder needs
-  for names/economy/ranges and uploads them as JSON per game version (no assets, no levels).
-- **los** – the only heavy local job, run at low priority after decoding finishes and paused
-  if a battle starts: downloads the match's compact positions, computes line of sight and
-  danger grids against the terrain extracted from your install, uploads only the results.
-  Terrain stays on the PC (rule 3).
-- **doctor** – checks 8111, the replay setting, the Replays folder, connection to the API,
-  free disk space, versions.
+### 1. Helper app (`wt-helper`, Windows) — `src/wt_analytics/helper/`
+Single-file exe (PyInstaller, built by GitHub Actions), downloadable from the site. Config:
+`%APPDATA%\wt-analytics\config.toml` (share path, staging path, site URL, key, my userId).
+- **ingest / queue** (`ingest.py`) — one folder per battle in staging with `state.json`. Steps:
+  stage client replay → copy to share → fetch server replay → copy to share → decode → copy
+  decoded tables to share → write manifest → send the match row to the site → clear staging.
+  Each step is recorded when done; failures (share offline, network) retry after 5 min and never
+  repeat finished steps. Staging is deleted only after everything is on the share.
+- **share** (`share.py`) — copy to a temp name, verify sha256, rename. Identical re-copies are
+  no-ops; a different file under an existing raw name is refused.
+- **server_fetch** (`server_fetch.py`) — `GET https://wt-game-replays.warthunder.com/<session>/NNNN.wrpl`
+  (302 to Gaijin's CDN, no login), parts until 404/403, one at a time, each part retried 6× with
+  backoff (the CDN resets connections), resumable. If part 0 isn't there yet: retry after
+  2 min, 10 min, 30 min, 1 h, 3 h, 12 h, then decode from the client replay alone.
+- **inbox** — replays uploaded on the website wait in R2 `inbox/`; the helper downloads them,
+  queues them and deletes them from R2.
+- Next: **live_logger** (8111 → zstd JSONL, uploads nothing during a battle), **replay_watcher**,
+  **install_catalogue** (English names/prices from the install), **doctor**, autostart, and
+  **los** (terrain from the install, stays on the PC; only results go to the site).
 
-The helper never runs analysis during a battle and stays below ~1 % CPU while logging.
+### 2. Decoding — `src/wt_analytics/pipeline/`
+- **decode** — 3DHeat-Ext-WarThunder pinned to the v0.2.2 commit (`HEAT3D_NO_UPDATE=1`). The wide
+  table is split into per-event Parquet tables (positions, hits, kills, weapons, fires, logistics,
+  other), sorted by track and time, dropping columns empty in that table (halves the size).
+- **accel** — checked drop-in speed-ups for the pinned decoder version only.
+- **battle** — decodes client and server replays in parallel processes at below-normal priority;
+  merges the match summary (server replay first, client fills gaps such as country).
+- **summary** — the match row for the site.
 
-### 2. Cloudflare Worker (`worker/`)
-Plain JS ES modules, no build step, deployed with `wrangler`.
-- Serves `web/` (static assets) and a JSON API.
-- **Auth:** one secret key (`API_KEY`, a Worker secret). The helper sends it as a bearer token;
-  the browser logs in once and keeps it in an HttpOnly cookie. Cloudflare Access can be added in
-  front later as a second layer. Static pages are public (they hold no data); all data is under
-  `/api/` and needs the key.
-- **Uploads:** `PUT /api/upload` with the raw client `.wrpl` (< 95 MB, client replays are a few MB).
-  The Worker reads the header for the session id, stores it with a sha256 check, records the match,
-  and queues the server-replay fetch. Re-uploading the same battle changes nothing.
-- **Jobs** (Cloudflare Queues, one message at a time, retries with backoff, dead-letter queue):
-  `fetch_server` → `decode`.
-- Answers dashboard queries from D1 (small summary tables) and streams Parquet/viewer packs
-  from R2.
+### 3. Website — `worker/` + `web/`
+Cloudflare Worker (plain JS, no build step) serving `web/` and a JSON API:
+- `POST /api/login`, cookie or bearer auth with one secret key (`API_KEY`).
+- `PUT /api/upload` (raw client `.wrpl` → R2 inbox + a pending match row).
+- `GET/DELETE /api/inbox[/<name>]` (helper), `PUT /api/matches/<session>` (helper publishes a row).
+- `GET /api/matches[/<session>]`, `GET /api/health`.
+Static pages hold no data; everything is under `/api/` and needs the key. Cloudflare Access can
+be added in front as a second layer.
 
-### 3. Pipeline container (`src/wt_analytics/pipeline/`, Cloudflare Containers)
-A Python 3.12 container image started on demand by the Worker.
-- **server replay fetch** runs in the Worker, not the container (`worker/src/jobs.js`):
-  `GET https://wt-game-replays.warthunder.com/<session_hex>/NNNN.wrpl` (302 to Gaijin's CDN) for
-  NNNN = 0000, 0001, … until 404/403, one request at a time, streamed straight into R2.
-  Each part is retried 6 times with backoff (the CDN resets connections); parts already stored
-  are skipped, so a retried job resumes. If part 0 is not there yet, the job is re-queued after
-  2 min, 10 min, 30 min, 1 h, 3 h, 12 h; after that the battle is decoded from the client replay alone.
-- **decode** – 3DHeat-Ext-WarThunder pinned to the v0.2.2 commit (`HEAT3D_NO_UPDATE=1`), pure
-  Python. Container: Python 3.14 on `standard-3` (2 vCPU, 8 GiB); the client and server replays
-  decode in parallel processes (peak ~2 GiB each). The wide table is split into per-event Parquet
-  tables sorted by track and time, dropping columns empty in that table (halves the size). The
-  Worker streams inputs into the container and outputs back to R2 (`worker/src/jobs.js`).
-  Names/economy from the install catalogue: later in Phase 1.
-  On failure: raw kept, manifest status `pending_redecode`, shown on the Data Health page.
-- **derive** – DuckDB/polars over the decoded tables → `derived/<schema_version>/…` plus rows
-  for the D1 summary tables.
-- **viewer_pack** – compact typed-array binary per match for the viewer.
+### 4. desk-hub
+A Samba share only — setup in `docs/LAPTOP.md`.
 
-### 4. Web app (`web/`)
-Plain HTML/CSS/JS ES modules. Design system in `web/design/`. Dashboard, post-match reports,
-match list, per-vehicle/per-map pages, trends, stats catalogue, data health, uploads,
-downloads, and the 2D (later 3D) replay viewer (Canvas2D/WebGL, Web Workers).
+## Storage layout
+Share (`W:\`, `/srv/wt` on desk-hub):
+```
+raw/replays/client/<yyyy-mm-dd>/<session>.wrpl
+raw/replays/server/<session>/0000.wrpl …
+raw/live/<session>/…                       (live logger, next)
+decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,…}.parquet, match.json, …
+decoded/heat3d-0.2.2/<session>/result.json
+manifest/<session>.json                    (header info, step status, every file's sha256)
+```
+Cloudflare: D1 `matches` (one row per battle) and `files` (R2 objects); R2 `inbox/` (transient),
+later `viewer/` and `derived/`. Everything on Cloudflare is rebuildable from the share.
 
-### 5. Optional backup
-The laptop Samba share becomes an optional mirror (`wt sync --to-share`), not required.
-A second copy of R2 can also be made with rclone from the laptop at low priority.
-
-## Data flow for one match
-1. Battle starts → helper logs 8111 locally.
-2. Battle ends → helper uploads the live log; the game saves the client replay → helper
-   uploads it and the session id.
-3. Worker records the match in D1 and enqueues: fetch server replay, decode, derive, pack.
-4. Helper sees "decoded" → computes LOS locally → uploads results → Worker marks the match
-   complete; the site notifies (browser notification / helper tray toast) that the report is
-   ready.
-
-## Storage and cost estimate
-| Item | Size per match (estimate, to verify in Phase 0) |
-|---|---|
-| Client replay | 2–20 MB |
-| Server replay (all parts) | 10–60 MB |
-| 8111 live log (zstd) | 1–5 MB |
-| Decoded + derived + viewer pack | 5–20 MB |
-
-At ~10 matches/day: roughly 5–30 GB/month in R2, about $0.10–0.45/month added each month
-(R2 storage $0.015/GB-month, no egress fees). Containers bill by active CPU/memory time,
-a few minutes per match. D1 and Workers fit in the Paid plan's included usage.
+## Measured (2 battles, 2026-11-21)
+| | Ground | Air |
+|---|---|---|
+| Raw on share (client + server) | 19 MB | 36 MB |
+| Decoded on share | 30 MB | 38 MB |
+| On Cloudflare | one D1 row | one D1 row |
+| Helper end to end (this cloud machine, 2.1 GHz Xeon) | 110 s | 80 s |
 
 ## Changes from the original spec (`docs/SPEC.md`)
-- Main storage is the private R2 bucket, not the laptop share (user approved 2026-11-21).
-- Processing runs in a Cloudflare Container instead of on the PC; the PC only logs, uploads
-  and computes LOS.
-- Dashboard is hosted (behind Access) instead of `localhost`; reachable from the phone.
-- The `wt` CLI becomes the helper app (`wt-helper`, with the same subcommands for power use)
-  plus Worker endpoints; `wt install` = download and run the exe.
-- Index is D1 (+ DuckDB inside the container) instead of a local DuckDB file.
+- Website hosted on Cloudflare (Worker + D1 + R2) instead of `localhost`, behind a key.
+- The `wt` CLI becomes `wt-helper` (a Windows exe with the same subcommands).
+- The share holds per-battle manifest JSON files instead of an append-only `matches.parquet`.

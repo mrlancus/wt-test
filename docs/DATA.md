@@ -62,7 +62,7 @@ instruments, my camera, and the session id. Keep both.
 ## 5. Decoder output (3DHeat-Ext-WarThunder 0.2.2)
 - Pure Python, runs on Linux without the game **[verified]**. Without an install, vehicles and
   weapons have ids only (`ussr_bmpt_72`, `us_aim_120c_5`, `120mm_jm33`); English names and
-  economy prices need the install catalogue from the helper.
+  economy prices need the install (the helper reads them on the PC).
 - Auto-update disabled with `HEAT3D_NO_UPDATE=1`.
 - Files per battle: `<match>.parquet` (105 columns), `.match.json`, `.messages.parquet`,
   `.objectives.parquet`, `.flight.parquet`. Server outputs end in `_server`.
@@ -70,7 +70,7 @@ instruments, my camera, and the session id. Keep both.
 - Decode time (Xeon 2.1 GHz, one core per replay): client 10 s (air) / 24 s (ground); ground server
   105 s on Python 3.12 → **85 s** with Python 3.14 and the checked `_rle` speed-up (`pipeline/accel.py`).
   The rest is spread over pure-Python bit reading and table building (no single hot spot left).
-  Client and server decode in parallel, so a battle takes ~100 s in the container.
+  Client and server decode in parallel (`pipeline/battle.py`), so a battle takes about as long as its server replay.
 - After the per-event split, the ground server tables are 14.8 MB positions + < 100 KB each for
   hits, kills, weapons, fires, logistics (from 29 MB as one table).
 

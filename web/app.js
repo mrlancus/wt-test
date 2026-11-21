@@ -1,7 +1,7 @@
 // Phase 1 working page: login, upload, match list, data health.
 
 const $ = (selector) => document.querySelector(selector);
-const STATUS_CLASS = { done: "ok", failed: "bad", missing: "warn" };
+const STATUS_CLASS = { done: "ok", failed: "bad", missing: "warn", inbox: "dim" };
 
 async function api(path, init) {
   const response = await fetch(`/api/${path}`, { credentials: "same-origin", ...init });
@@ -41,7 +41,7 @@ async function loadMatches() {
       cell(m.kills, "num"),
       cell(m.deaths, "num"),
       cell(m.score, "num"),
-      cell(m.server_parts ? `${m.server_status} (${m.server_parts} parts)` : m.server_status, STATUS_CLASS[m.server_status]),
+      cell(m.server_status, STATUS_CLASS[m.server_status]),
       cell(m.decode_status, STATUS_CLASS[m.decode_status]),
     );
     if (m.decode_error) tr.title = m.decode_error;
@@ -66,7 +66,7 @@ async function upload(files) {
     $("#log").prepend(line);
     try {
       const r = await api(`upload?name=${encodeURIComponent(file.name)}`, { method: "PUT", body: file });
-      line.textContent = `${file.name}: ${r.new ? "stored" : "already stored"}, ${r.map}, session ${r.session}`;
+      line.textContent = `${file.name}: ${r.new ? "uploaded, your PC will process it" : "already known"}, ${r.map}, session ${r.session}`;
     } catch (e) {
       line.textContent = `${file.name}: ${e.message}`;
       line.className = "bad";

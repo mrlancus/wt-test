@@ -7,7 +7,7 @@ and shows reports and a replay viewer on a private website.
 stored data.
 
 Full original spec: `docs/SPEC.md`. Architecture and the reasons for it: `docs/ARCHITECTURE.md`.
-Current findings and status: `docs/PHASE0.md`.
+Verified data facts: `docs/DATA.md`. desk-hub Samba setup: `docs/LAPTOP.md`.
 
 ## Hard rules (non-negotiable)
 1. **Post-match only.** Nothing shows enemy information while a match runs. The helper only
@@ -16,60 +16,51 @@ Current findings and status: `docs/PHASE0.md`.
    saves or serves (incl. `wt-game-replays.warthunder.com`). Never read game memory, inject or
    hook. Install files are only *read* (names, economy, terrain) by the helper on the PC.
 3. **Nothing from the game is redistributed.** No game assets, levels, terrain or replays in
-   the repo or anywhere public. R2 bucket is private; the site sits behind Cloudflare Access.
+   the repo or anywhere public. **Replays and full decoded tables stay at home** (desk-hub share);
+   Cloudflare gets only what the website needs (match rows, later viewer packs and derived
+   tables), plus website uploads held in a private inbox until the PC takes them.
    **Terrain/level data never leaves the PC**: LOS and heatmaps are computed by the helper and
    only their results are uploaded.
 4. **Secrets** (Cloudflare/R2 tokens) live outside git (`.env`, `wrangler secret`, the helper's
    config in `%APPDATA%`). Never commit them.
 5. **No SQLite/DuckDB files on network shares.** Databases live locally or in D1.
 
-## Architecture (website-first)
+## Architecture: desk-hub stores, the PC works, Cloudflare shows
 ```
-Gaming PC (Windows)                     Cloudflare (private, behind Access)
-┌─────────────────────────┐   HTTPS    ┌───────────────────────────────────────┐
-│ helper app (wt-helper)  │ ─────────► │ Worker: API, uploads, auth, serves web │
-│  live_logger  (8111)    │  upload    │ R2: raw/, decoded/, derived/, viewer/  │
-│  replay_watcher         │  after     │ D1: manifest + summary tables          │
-│  queue (upload/retry)   │  battle    │ Container: Python pipeline             │
-│  install_catalogue      │            │   decode (3DHeat, pinned) → derive     │
-│  los (terrain, local)   │ ◄───────── │   server_replay_fetch                  │
-└─────────────────────────┘  jobs      │ web/: dashboard + 2D/3D viewer         │
-                                       └───────────────────────────────────────┘
+Gaming PC: wt-helper ──SMB──► desk-hub Samba share W:\  (raw replays, decoded tables, manifests)
+  capture, server-replay fetch,
+  decode (low priority), queue ──HTTPS──► Cloudflare Worker + D1 (+ R2 inbox / viewer packs)
+                               ◄──────── website uploads (R2 inbox, deleted once taken)
 ```
 - The helper is a single Windows `.exe` (built by GitHub Actions), downloadable from the site.
-- Manual upload of `.wrpl` / server-replay zips through the site's Upload page also works.
-- The laptop/Samba share is **optional** (backup mirror only); the main storage is R2.
+- desk-hub only serves files (Klipper runs there: no processing on it).
+- Site: https://wt-analytics.lancus.workers.dev (key login). Details: `docs/ARCHITECTURE.md`.
 
 ## Module map
 | Path | What |
 |---|---|
-| `src/wt_analytics/common/schema.py` | decoder pin, `SCHEMA_VERSION`, decoded table layout |
-| `src/wt_analytics/helper/` | PC app (Phase 1, next): `live_logger`, `replay_watcher`, `queue`, `install_catalogue`, `los`, `doctor` |
-| `src/wt_analytics/pipeline/` | cloud container: `service` (HTTP job API), `decode` (3DHeat + per-event split), `summary` (D1 match row), `accel` (checked speed-ups for the pinned decoder) |
-| `Dockerfile.pipeline` | the container image (Python 3.14; built by `wrangler deploy`) |
-| `worker/` | Cloudflare Worker, plain JS ES modules: `index.js` (API, auth, upload, queue consumer), `jobs.js` (server-replay fetch, decode orchestration), `pipeline.js` (container Durable Object), `replay.js` (wrpl header), `util.js`; `schema.sql` (D1), `wrangler.jsonc` |
+| `src/wt_analytics/common/` | `schema.py` (decoder pin, `SCHEMA_VERSION`, decoded table layout), `config.py` (the TOML config) |
+| `src/wt_analytics/helper/` | PC app: `cli` (`wt-helper ingest/process`), `ingest` (staging queue + steps), `share` (verified copies), `server_fetch`, `api` (site client). Next: `live_logger`, `replay_watcher`, `install_catalogue`, `los`, `doctor` |
+| `src/wt_analytics/pipeline/` | decoding on the PC: `battle` (client+server in parallel, low priority), `decode` (3DHeat + per-event split), `summary` (match row), `accel` (checked speed-ups for the pinned decoder) |
+| `worker/` | Cloudflare Worker, plain JS ES modules: `index.js` (API, auth, upload inbox, match rows), `replay.js` (wrpl header), `util.js`; `schema.sql` (D1), `wrangler.jsonc` |
 | `web/` | static site served by the Worker. Now: a plain Phase 1 working page; designed UI from Phase 2 |
-| `tools/docker-proxy.sh` | docker wrapper for builds behind a TLS proxy (`WRANGLER_DOCKER_BIN`) |
 | `web/design/` | **the design system** (tokens.css, components.css) — created in Phase 2, then used everywhere |
 | `tools/` | one-off scripts (e.g. `dump-8111.ps1`) |
 | `docs/` | SPEC, ARCHITECTURE, DATA (verified facts), STATS (catalogue), PHASE0 |
 
-## Data layout (R2 bucket `wt-analytics`, private)
+## Data layout
+desk-hub share (`W:\`):
 ```
 raw/replays/client/<yyyy-mm-dd>/<session>.wrpl
 raw/replays/server/<session>/0000.wrpl ...
-raw/live/<session>/<endpoint>.jsonl.zst
-raw/maps/<map>/<version>/map.img, map_info.json
-catalogue/<game_version>/names.json, economy.json, ranges.json   (small, from the PC install)
-decoded/<decoder>-<version>/<session>/*.parquet
-derived/<schema_version>/<table>/...parquet
-los/<los_version>/<session>/...                                     (computed on the PC)
-viewer/<pack_version>/<session>.bin                                 (compact viewer pack)
+raw/live/<session>/<endpoint>.jsonl.zst                       (live logger, next)
+decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,kills,weapons,fires,logistics,other}.parquet
+                                + match.json, messages/objectives/flight.parquet; <session>/result.json
+manifest/<session>.json                                         (step status + sha256 of every file)
 ```
-Decoded per source: `decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,kills,weapons,fires,logistics,other}.parquet`
-+ `match.json`, `messages/objectives/flight.parquet`, and `<session>/result.json`.
-D1 (`worker/schema.sql`): `matches` (one row per battle + status of every step) and `files`
-(every R2 object with size and sha256). Everything in D1 is rebuildable from R2.
+Cloudflare: D1 (`worker/schema.sql`) `matches` (one row per battle) and `files` (R2 objects);
+R2 `inbox/` (website uploads, transient), later `viewer/` and `derived/`. All rebuildable from the share.
+PC staging (`D:\wt-staging`): one folder per battle in progress (`state.json`), cleared when done.
 
 ## Coding standards
 - Python 3.12+, `uv`, wheel-only deps. Type hints everywhere, dataclasses/pydantic where useful.
@@ -102,17 +93,18 @@ screenshots → fresh Sonnet reviewer) for every UI piece — see `docs/SPEC.md`
 - This main session owns architecture and code. Sonnet subagents only for bounded research,
   docs, visual reviews and fresh-eyes code reviews.
 - **After any big change, update every affected file in the same commit**: this file,
-  `README.md`, `docs/ARCHITECTURE.md`, `docs/DATA.md`, `docs/STATS.md`, `docs/PHASE0.md`.
+  `README.md`, `docs/ARCHITECTURE.md`, `docs/DATA.md`, `docs/STATS.md`, `docs/LAPTOP.md`.
 - Small, meaningful commits. Branch: `claude/tender-brahmagupta-cdjah0`.
 
 ## Status
 Phase 0 done (`docs/PHASE0.md`, facts in `docs/DATA.md`).
 Phase 1 in progress:
-- Cloud side built and **verified end to end locally** (`wrangler dev` + Docker): upload → server
-  replay fetch (10 parts) → decode in container → R2 + D1 summary, ~2.5 min per ground battle.
-- R2 bucket, D1 db (`326cea19-…`) and queues `wt-jobs`/`wt-jobs-dlq` created on the account.
-- **Not deployed yet**: the account's API token lacks the Containers permission (user to add).
-- Next: deploy, then the helper exe (logger, watcher, upload queue, install catalogue).
+- Site **deployed** (Worker + D1 `wt-analytics` + R2 `wt-analytics`). Verified end to end on the live
+  site with both real battles: website upload → inbox → helper → server fetch → decode → share
+  (a local stand-in here) → match row on the site. Helper: ~80 s air, ~110 s ground.
+- Done in the helper: `ingest`/`process` commands, queue, share copies, server fetch, inbox.
+- Next: live logger (8111), replay watcher + `run` service + autostart, install catalogue,
+  `doctor`, the Windows exe build (GitHub Actions) and Downloads page; then Phase 1 review.
 - Server replays are the primary source; client replays add my instruments + session id.
 - Me = userId `110703665` (server replays have no author).
 - Real fixtures (git-ignored): `tests/fixtures/client/*.wrpl`, `tests/fixtures/server/<sid>/`.

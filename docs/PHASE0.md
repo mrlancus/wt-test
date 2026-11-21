@@ -21,18 +21,19 @@
 4. **Your cockpit instruments are only in the client replay** (air). Keep both replays.
 5. **Missed tank rounds are probably not recorded.** `shot` rows are hits. Ground accuracy
    (hits / rounds fired) may need the 8111 log (ammo count over time) — to check in Phase 1.
-6. **Names and prices need your install.** The decoder in the cloud only sees ids. The helper
-   uploads a small name/price catalogue from your install.
+6. **Names and prices need your install.** Without it the decoder only sees ids; the helper
+   runs on the PC, so it can read them there.
 7. **Decoding is slow-ish:** a ground server replay took 105 s on a 4-vCPU cloud machine.
    Profile in Phase 1; acceptable for a background job anyway.
 
 ## Changes to the plan
+(Later superseded on storage: replays stay on desk-hub, the PC decodes, Cloudflare holds only
+website data — see `ARCHITECTURE.md`.)
 - Server replay fetch is required, not optional; keep client replays too.
 - Ground accuracy: derive rounds fired from the 8111 ammo/indicator log if the replay lacks it.
 - 8111 inspection and map alignment move into Phase 1 (helper) instead of a separate dump.
 - Decode time budget: aim for < 60 s after profiling; the pipeline is async so the report may
   take ~2 min after a battle.
 
-## Next (Phase 1, needs your OK)
-Cloudflare side first: Worker + R2 + D1 + Container, uploads, server-replay fetch, decode,
-manifest. Then the helper exe. I'll need a Cloudflare API token (secure form) and your account id.
+## Next
+Phase 1 is under way: see the Status section of `CLAUDE.md`.
