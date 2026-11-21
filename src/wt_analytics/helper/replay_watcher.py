@@ -1,6 +1,7 @@
 """
 Finds new client replays in the game's Replays folder. A replay is taken once its size has not
-changed for `STABLE_S` seconds (the game has finished writing it). Replays already there when
+changed for `STABLE_S` seconds (the game has finished writing it). Names starting with `#` are
+replays the game is still writing (header still zero), or leftovers of a crash: never taken. Replays already there when
 the helper first ran are not taken automatically (`wt-helper ingest <folder>` imports a backlog).
 """
 
@@ -39,7 +40,7 @@ class ReplayWatcher:
         now = time.monotonic()
         ready = []
         for path in sorted(self.folder.glob("*.wrpl")):
-            if path.name in self._seen:
+            if path.name in self._seen or path.name.startswith("#"):  # "#…": the game is still writing it
                 continue
             try:
                 size = path.stat().st_size

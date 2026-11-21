@@ -36,6 +36,8 @@ Header **[verified]** (offsets from 3DHeat `wrpl.py`): magic `0x1000ACE5`, u32 v
 level @8, battle type @396, difficulty @688, **session id u64 @732** (16-digit hex),
 part @740, start time Unix s @908, time limit @912, battle class @968.
 Sizes: 2.9 MB (air, 3 min), 3.4 MB (ground, 7 min).
+Files named `#<date> <time>.wrpl` have an all-zero header **[verified]** (2 leftovers from 2024–25
+in the user's folder): unfinished replays (the game writes the header last). Ignored.
 
 Contents **[verified]**:
 | | Client replay |
