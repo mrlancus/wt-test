@@ -2,10 +2,11 @@
 
 desk-hub only stores files for wt-analytics; no processing runs there, so Klipper is never
 starved. Samba uses a few tens of MB of RAM and no CPU while idle. Nothing in the desk-hub
-project itself changes. Everything below runs over SSH (`ssh <you>@desk-hub`).
+project itself changes. Everything below runs over SSH (`ssh deskhub@deskhub.local`).
 
 ## 1. Look before changing anything
-Your LAN address and range (the `inet` line, e.g. `192.168.1.40/24` → range `192.168.1.0/24`):
+Your LAN range (desk-hub's address e.g. `192.168.1.40/24` → range `192.168.1.0/24`; the range stays
+valid when desk-hub's own address changes):
 ```bash
 ip -4 -brief addr
 ```
@@ -68,11 +69,13 @@ smbclient //localhost/wt -U wtshare -c ls
 (`sudo apt install -y smbclient` first if it is missing.)
 
 ## 3. On the gaming PC (Windows 11)
-In a Command Prompt, with desk-hub's IP from step 1 (or its hostname); it asks for the
-`wtshare` password:
+In a Command Prompt; it asks for the `wtshare` password (not the SSH one). Use the name, not the
+IP, so a changed address doesn't matter:
 ```bash
-net use W: \\192.168.1.40\wt /user:wtshare /persistent:yes
+net use W: \\deskhub.local\wt /user:wtshare /persistent:yes
 ```
+If `W:` ever fails to reconnect after a reboot, give desk-hub a fixed address in the router's DHCP
+settings (keep using the name).
 `W:` then appears in Explorer. In the helper's config: `share = "W:/"` — it creates `raw`,
 `decoded` and `manifest` itself. If the share is offline, battles wait in the helper's staging
 folder and are copied later.
