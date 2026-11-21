@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           $cfg = "$env:RUNNER_TEMP\config.toml"
-          Set-Content $cfg "[paths]`nshare = `"$env:RUNNER_TEMP/share`"`nstaging = `"$env:RUNNER_TEMP/staging`"`n[api]`nurl = `"http://127.0.0.1:9`"`nkey = `"x`"`n[player]`nuser_id = `"1`""
+          Set-Content $cfg "[paths]`nshare = '$env:RUNNER_TEMP\share'`nstaging = '$env:RUNNER_TEMP\staging'`n[api]`nurl = 'http://127.0.0.1:9'`nkey = 'x'`n[player]`nuser_id = '1'"
           $out = dist\wt-helper.exe --config $cfg doctor | Out-String
           Write-Output $out
           if ($out -notmatch "ok    decoder") { exit 1 }
