@@ -1,0 +1,44 @@
+# Builds wt-helper.exe (single file) on Windows and publishes it as the release "helper",
+# so the site's Downloads link always gets the newest build:
+#   https://github.com/mrlancus/wt-test/releases/download/helper/wt-helper.exe
+name: helper-exe
+
+on:
+  push:
+    branches: [claude/tender-brahmagupta-cdjah0, main]
+    paths: [src/**, tools/helper_entry.py, pyproject.toml, .github/workflows/helper.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install (Python 3.14 decodes ~20 % faster than 3.12)
+        run: |
+          uv venv --python 3.14
+          uv pip install ".[helper]" "pyinstaller>=6.16"
+      - name: Build
+        run: .venv\Scripts\pyinstaller --onefile --name wt-helper --collect-all heat3d_ext_warthunder --exclude-module polars --exclude-module pytest tools/helper_entry.py
+      - name: Smoke test (the exe starts and its pinned decoder loads)
+        shell: pwsh
+        run: |
+          $cfg = "$env:RUNNER_TEMP\config.toml"
+          Set-Content $cfg "[paths]`nshare = `"$env:RUNNER_TEMP/share`"`nstaging = `"$env:RUNNER_TEMP/staging`"`n[api]`nurl = `"http://127.0.0.1:9`"`nkey = `"x`"`n[player]`nuser_id = `"1`""
+          $out = dist\wt-helper.exe --config $cfg doctor | Out-String
+          Write-Output $out
+          if ($out -notmatch "ok    decoder") { exit 1 }
+          exit 0
+      - name: Publish as release "helper"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release delete helper --cleanup-tag --yes || true
+          gh release create helper dist/wt-helper.exe --target "$GITHUB_SHA" --latest \
+            --title "wt-helper (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Built from ${GITHUB_SHA::7}. Download wt-helper.exe, then run: wt-helper.exe install --share W:/ --key <website key> --user-id <your userId>"

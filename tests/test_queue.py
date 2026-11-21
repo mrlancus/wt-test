@@ -45,7 +45,7 @@ def test_offline_share_delays_without_losing_or_repeating(tmp_path, monkeypatch)
         (into / "0000.wrpl").write_bytes(b"part")
         return [into / "0000.wrpl"]
 
-    def fake_decode(inputs, out, me):
+    def fake_decode(inputs, out, me, **_):
         calls["decode"] += 1
         (out / "server").mkdir(parents=True)
         (out / "server" / "positions.parquet").write_bytes(b"table")
@@ -70,3 +70,46 @@ def test_offline_share_delays_without_losing_or_repeating(tmp_path, monkeypatch)
     assert (share_root / f"decoded/heat3d-0.2.2/{job.session}/server/positions.parquet").exists()
     assert api.rows[job.session]["server_status"] == "done"
     assert not (cfg.staging / job.session).exists()  # cleared only once all is on the share
+
+
+
+@pytest.mark.skipif(not AIR_CLIENT.exists(), reason="real replay fixture not present")
+def test_battle_start_interrupts_decode_and_live_log_is_matched(tmp_path, monkeypatch):
+    (tmp_path / "share").mkdir()
+    cfg = Config(share=tmp_path / "share", staging=tmp_path / "staging", replays=None, api_url="http://x", api_key="k", me_user_id="1")
+    monkeypatch.setattr(ingest, "fetch_server_replay", fake_fetch_missing)
+    in_battle = {"now": False}
+    decodes = []
+
+    def fake_decode(inputs, out, me, should_stop):
+        decodes.append(1)
+        if len(decodes) == 1:
+            in_battle["now"] = True  # a battle starts while the first decode runs
+        if should_stop():
+            raise ingest.Interrupted
+        (out / "client").mkdir(parents=True)
+        return BattleResult("heat3d-0.2.2", 1, sources={"client": []}, summary={"map": "air_afghan"})
+
+    monkeypatch.setattr(ingest, "decode_battle", fake_decode)
+    queue = ingest.Queue(cfg, FakeApi())
+    job = queue.add(AIR_CLIENT)
+    job.server_attempts = len(ingest.SERVER_RETRY_DELAYS) - 1  # last try: decode without the server replay
+    started = ingest.datetime.fromisoformat(job.started).timestamp()
+    for name, offset in (("this", 40), ("other", 4000)):  # this battle's live log, and a later battle's
+        folder = queue.live_root / name
+        folder.mkdir()
+        (folder / "state.jsonl.zst").write_bytes(name.encode())
+        (folder / "meta.json").write_text(f'{{"started": {started + offset}, "ended": {started + offset + 300}}}')
+
+    pause = lambda: in_battle["now"]
+    queue.advance(job, pause)
+    assert "decode" not in job.done and job.last_error is None and job.next_try <= ingest.time.time()
+    in_battle["now"] = False
+    queue.advance(job, pause)
+    assert job.done == list(ingest.STEPS) and len(decodes) == 2
+    assert job.live == "this" and (cfg.share / f"raw/live/{job.session}/state.jsonl.zst").read_bytes() == b"this"
+    assert (queue.live_root / "other" / "meta.json").exists()
+
+
+def fake_fetch_missing(session, into):
+    raise ingest.NotAvailableYet()

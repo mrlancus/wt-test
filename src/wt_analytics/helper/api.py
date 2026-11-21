@@ -38,3 +38,8 @@ class Api:
 
     def delete_inbox(self, name: str) -> None:
         self.http.delete(f"/inbox/{name}").raise_for_status()
+
+    def health(self) -> dict[str, Any]:
+        response = self.http.get("/health")
+        response.raise_for_status()
+        return response.json()

@@ -22,6 +22,8 @@
     th { color: var(--dim); font-weight: 500; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .dim { color: var(--dim); }
+    pre { background: var(--bg); border: 1px solid var(--line); padding: 10px; overflow-x: auto; }
+    a { color: inherit; }
     #log { color: var(--dim); white-space: pre-wrap; margin-top: 10px; }
     .wrap { overflow-x: auto; }
     [hidden] { display: none !important; }
@@ -45,6 +47,14 @@
       <div class="wrap"><table id="matches"><thead><tr>
         <th>Started (UTC)</th><th>Map</th><th>Mode</th><th>Vehicles</th><th>Result</th><th class="num">K</th><th class="num">D</th><th class="num">Score</th><th>Server replay</th><th>Processed</th>
       </tr></thead><tbody></tbody></table></div>
+    </section>
+    <section>
+      <h2>Download the helper (Windows)</h2>
+      <p><a href="https://github.com/mrlancus/wt-test/releases/download/helper/wt-helper.exe">wt-helper.exe</a>
+        <span class="dim">— newest build. Records battles, takes new replays, stores them on desk-hub and sends results here.</span></p>
+      <p class="dim">Once, in a Command Prompt in the download folder:</p>
+      <pre>wt-helper.exe install --share W:/ --key &lt;this site's key&gt; --user-id &lt;your War Thunder userId&gt;
+wt-helper.exe doctor</pre>
     </section>
     <section><h2>Data health</h2><div id="health" class="dim">…</div></section>
   </div>

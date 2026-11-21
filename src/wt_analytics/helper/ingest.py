@@ -1,7 +1,8 @@
 """
 The local queue: one folder per battle in the staging area, with its progress in `state.json`.
 
-A battle goes: stage the client replay → copy it to the share → fetch the server replay →
+A battle goes: stage the client replay → copy it to the share → copy its live 8111 log (if
+recorded) to the share → fetch the server replay →
 copy it to the share → decode both → copy the decoded tables to the share → write its manifest →
 send the summary to the website → clear staging. Each step is recorded when done, so a restart,
 an offline share or a lost connection only delays it. Nothing is deleted locally until it is on
@@ -23,14 +24,18 @@ import httpx
 
 from wt_analytics.common.config import Config
 from wt_analytics.helper.api import Api
+from wt_analytics.helper.live_logger import completed_battles
 from wt_analytics.helper.server_fetch import NotAvailableYet, fetch_server_replay
 from wt_analytics.helper.share import Share, ShareOffline, sha256
-from wt_analytics.pipeline.battle import DECODER_ID, decode_battle
+from wt_analytics.pipeline.battle import DECODER_ID, Interrupted, decode_battle
 
 # Waits before asking for a server replay again when it is not there yet (s); then decode without it.
 SERVER_RETRY_DELAYS = (120, 600, 1800, 3600, 10800, 43200)
 RETRY_DELAY = 300  # after a transient failure (share offline, network)
-STEPS = ("raw_client", "server", "raw_server", "decode", "publish", "manifest", "summary")
+#: A live log belongs to a replay if it started within this many seconds of the replay's start time.
+LIVE_MATCH_S = 600
+UNMATCHED_LIVE_AFTER_S = 86400  # live logs with no replay (test drives, …) go to the share after a day
+STEPS = ("raw_client", "raw_live", "server", "raw_server", "decode", "publish", "manifest", "summary")
 
 
 @dataclass
@@ -42,6 +47,7 @@ class Job:
     done: list[str] = field(default_factory=list)
     server: str = "pending"  # pending | done | missing
     server_attempts: int = 0
+    live: str | None = None  # the live log folder taken for this battle, or None
     next_try: float = 0.0
     last_error: str | None = None
     hashes: dict[str, str] = field(default_factory=dict)  # share-relative path -> sha256
@@ -53,7 +59,9 @@ class Queue:
         self.cfg = cfg
         self.share = Share(cfg.share)
         self.api = api or Api(cfg)
-        cfg.staging.mkdir(parents=True, exist_ok=True)
+        self.live_root = cfg.staging / "live"
+        self.live_root.mkdir(parents=True, exist_ok=True)
+        self._should_pause: Callable[[], bool] = lambda: False
 
     # --- adding battles
 
@@ -101,6 +109,7 @@ class Queue:
         return worked
 
     def advance(self, job: Job, should_pause: Callable[[], bool] = lambda: False) -> Job:
+        self._should_pause = should_pause
         for step in STEPS:
             if step in job.done:
                 continue
@@ -111,6 +120,8 @@ class Queue:
                     break  # waiting (server replay not there yet)
                 job.done.append(step)
                 job.last_error = None
+            except Interrupted:
+                break  # a battle started: carry on from this step when it is over
             except (ShareOffline, httpx.HTTPError, OSError) as e:
                 job.last_error = f"{step}: {type(e).__name__}: {e}"
                 job.next_try = time.time() + RETRY_DELAY
@@ -127,6 +138,25 @@ class Queue:
         rel = f"raw/replays/client/{job.started[:10]}/{job.session}.wrpl"
         job.hashes[rel] = self.share.put(self._dir(job) / "client" / f"{job.session}.wrpl", rel)
         return True
+
+    def _step_raw_live(self, job: Job) -> bool:
+        start = datetime.fromisoformat(job.started).timestamp()
+        near = [(abs(meta["started"] - start), folder) for folder, meta in completed_battles(self.live_root)]
+        near = [n for n in near if n[0] <= LIVE_MATCH_S]
+        if near:
+            folder = min(near)[1]
+            rel = f"raw/live/{job.session}"
+            job.hashes.update({f"{rel}/{k}": v for k, v in self.share.put_tree(folder, rel).items()})
+            job.live = folder.name
+            shutil.rmtree(folder)
+        return True
+
+    def sweep_live(self) -> None:
+        """Live logs no replay claimed within a day are kept on the share too (raw/live/unmatched/)."""
+        for folder, meta in completed_battles(self.live_root):
+            if time.time() - meta["ended"] > UNMATCHED_LIVE_AFTER_S:
+                self.share.put_tree(folder, f"raw/live/unmatched/{folder.name}")
+                shutil.rmtree(folder)
 
     def _step_server(self, job: Job) -> bool:
         try:
@@ -152,7 +182,7 @@ class Queue:
         out = folder / "decoded"
         shutil.rmtree(out, ignore_errors=True)
         inputs = {s: sorted((folder / s).glob("*.wrpl")) for s in ("client", "server")}
-        result = decode_battle(inputs, out, self.cfg.me_user_id)
+        result = decode_battle(inputs, out, self.cfg.me_user_id, should_stop=self._should_pause)
         job.result = asdict(result)
         (out / "result.json").write_text(json.dumps(job.result, indent=1), encoding="utf-8")
         return True

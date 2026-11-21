@@ -29,10 +29,11 @@ Gaming PC (Windows)                      desk-hub laptop               Cloudflar
 ## Components
 
 ### 1. Helper app (`wt-helper`, Windows) — `src/wt_analytics/helper/`
-Single-file exe (PyInstaller, built by GitHub Actions), downloadable from the site. Config:
+Single-file exe (PyInstaller onefile, Python 3.14, built by `.github/workflows/helper.yml` on
+every push to `src/`, published as the GitHub release `helper`), linked from the site. Config:
 `%APPDATA%\wt-analytics\config.toml` (share path, staging path, site URL, key, my userId).
 - **ingest / queue** (`ingest.py`) — one folder per battle in staging with `state.json`. Steps:
-  stage client replay → copy to share → fetch server replay → copy to share → decode → copy
+  stage client replay → copy to share → copy its live log to share → fetch server replay → copy to share → decode → copy
   decoded tables to share → write manifest → send the match row to the site → clear staging.
   Each step is recorded when done; failures (share offline, network) retry after 5 min and never
   repeat finished steps. Staging is deleted only after everything is on the share.
@@ -44,9 +45,26 @@ Single-file exe (PyInstaller, built by GitHub Actions), downloadable from the si
   2 min, 10 min, 30 min, 1 h, 3 h, 12 h, then decode from the client replay alone.
 - **inbox** — replays uploaded on the website wait in R2 `inbox/`; the helper downloads them,
   queues them and deletes them from R2.
-- Next: **live_logger** (8111 → zstd JSONL, uploads nothing during a battle), **replay_watcher**,
-  **install_catalogue** (English names/prices from the install), **doctor**, autostart, and
-  **los** (terrain from the install, stays on the PC; only results go to the site).
+- **live_logger** (`live_logger.py`) — one thread, one keep-alive connection, a minimal HTTP
+  client (httpx cost 5 % of a core at these rates; this costs 0.6 %). Battle = `/indicators`
+  `valid: true`; ended after 5 s without it. Polls `/state` and `/indicators` 10 Hz,
+  `/map_obj.json` 5 Hz, `/hudmsg` and `/gamechat` 2 Hz (incremental ids), `/mission.json` 1 Hz,
+  `/map_info.json` every 5 s (+ `/map.img` when it changes), plus any endpoint found in the page's
+  scripts at 1 Hz. Raw responses → `staging/live/<UTC start>/<endpoint>.jsonl.zst`; uploads nothing.
+  The queue's `raw_live` step gives a log to the replay whose start time is within 10 min of it;
+  logs no replay claims go to `raw/live/unmatched/` after a day.
+- **replay_watcher** — polls the Replays folder (`[paths] replays`, else `<install>/Replays` via
+  3DHeat's install finder) every 10 s between battles; a file is taken once its size is stable
+  for 10 s. Replays there on the first run are history (`wt-helper ingest <folder>` imports them).
+- **service** (`wt-helper run`) — logger thread + a 10 s loop: during a battle nothing else runs;
+  between battles: watcher → queue, website inbox every 2 min, queue steps, unmatched live logs.
+  A running decode is killed the moment a battle starts and redone later. One instance only
+  (holds local port 48111). Log: `staging/logs/helper.log` (rotating).
+- **install / doctor** — `install` writes the config and a Task Scheduler logon task
+  (`conhost.exe --headless wt-helper.exe run`, normal rights); `doctor` checks the decoder, share,
+  staging, Replays folder, website key, 8111 and the queue.
+- Next: **install_catalogue** (English names/prices from the install) and **los** (terrain from
+  the install, stays on the PC; only results go to the site).
 
 ### 2. Decoding — `src/wt_analytics/pipeline/`
 - **decode** — 3DHeat-Ext-WarThunder pinned to the v0.2.2 commit (`HEAT3D_NO_UPDATE=1`). The wide
@@ -74,7 +92,7 @@ Share (`W:\`, `/srv/wt` on desk-hub):
 ```
 raw/replays/client/<yyyy-mm-dd>/<session>.wrpl
 raw/replays/server/<session>/0000.wrpl …
-raw/live/<session>/…                       (live logger, next)
+raw/live/<session>/<endpoint>.jsonl.zst …   (live logger; raw/live/unmatched/<UTC start>/ if no replay)
 decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,…}.parquet, match.json, …
 decoded/heat3d-0.2.2/<session>/result.json
 manifest/<session>.json                    (header info, step status, every file's sha256)

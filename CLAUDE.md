@@ -40,12 +40,13 @@ Gaming PC: wt-helper ──SMB──► desk-hub Samba share W:\  (raw replays, 
 | Path | What |
 |---|---|
 | `src/wt_analytics/common/` | `schema.py` (decoder pin, `SCHEMA_VERSION`, decoded table layout), `config.py` (the TOML config) |
-| `src/wt_analytics/helper/` | PC app: `cli` (`wt-helper ingest/process`), `ingest` (staging queue + steps), `share` (verified copies), `server_fetch`, `api` (site client). Next: `live_logger`, `replay_watcher`, `install_catalogue`, `los`, `doctor` |
-| `src/wt_analytics/pipeline/` | decoding on the PC: `battle` (client+server in parallel, low priority), `decode` (3DHeat + per-event split), `summary` (match row), `accel` (checked speed-ups for the pinned decoder) |
+| `src/wt_analytics/helper/` | PC app: `cli` (`wt-helper install/uninstall/run/doctor/ingest/process`), `service` (`run` loop), `live_logger` (8111 → zstd JSONL), `replay_watcher`, `ingest` (staging queue + steps), `share` (verified copies), `server_fetch`, `api` (site client), `autostart` (config + Task Scheduler), `doctor`. Next: `install_catalogue`, `los` |
+| `src/wt_analytics/pipeline/` | decoding on the PC: `battle` (client+server in parallel, low priority, killed when a battle starts), `decode` (3DHeat + per-event split), `summary` (match row), `accel` (checked speed-ups for the pinned decoder) |
 | `worker/` | Cloudflare Worker, plain JS ES modules: `index.js` (API, auth, upload inbox, match rows), `replay.js` (wrpl header), `util.js`; `schema.sql` (D1), `wrangler.jsonc` |
 | `web/` | static site served by the Worker. Now: a plain Phase 1 working page; designed UI from Phase 2 |
 | `web/design/` | **the design system** (tokens.css, components.css) — created in Phase 2, then used everywhere |
-| `tools/` | one-off scripts (e.g. `dump-8111.ps1`) |
+| `tools/` | `helper_entry.py` (PyInstaller entry), one-off scripts (e.g. `dump-8111.ps1`) |
+| `.github/workflows/helper.yml` | builds `wt-helper.exe` on Windows (Python 3.14, PyInstaller onefile) → release `helper` |
 | `docs/` | SPEC, ARCHITECTURE, DATA (verified facts), STATS (catalogue), PHASE0 |
 
 ## Data layout
@@ -53,14 +54,15 @@ desk-hub share (`W:\`):
 ```
 raw/replays/client/<yyyy-mm-dd>/<session>.wrpl
 raw/replays/server/<session>/0000.wrpl ...
-raw/live/<session>/<endpoint>.jsonl.zst                       (live logger, next)
+raw/live/<session>/<endpoint>.jsonl.zst, discovery.json, meta.json   (live logger; unmatched ones in raw/live/unmatched/)
 decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,kills,weapons,fires,logistics,other}.parquet
                                 + match.json, messages/objectives/flight.parquet; <session>/result.json
 manifest/<session>.json                                         (step status + sha256 of every file)
 ```
 Cloudflare: D1 (`worker/schema.sql`) `matches` (one row per battle) and `files` (R2 objects);
 R2 `inbox/` (website uploads, transient), later `viewer/` and `derived/`. All rebuildable from the share.
-PC staging (`D:\wt-staging`): one folder per battle in progress (`state.json`), cleared when done.
+PC staging (`D:\wt-staging`): one folder per battle in progress (`state.json`), cleared when done;
+`live/<UTC start>/` (live logs until a replay claims them), `seen-replays.json`, `logs/helper.log`.
 
 ## Coding standards
 - Python 3.12+, `uv`, wheel-only deps. Type hints everywhere, dataclasses/pydantic where useful.
@@ -102,9 +104,12 @@ Phase 1 in progress:
 - Site **deployed** (Worker + D1 `wt-analytics` + R2 `wt-analytics`). Verified end to end on the live
   site with both real battles: website upload → inbox → helper → server fetch → decode → share
   (a local stand-in here) → match row on the site. Helper: ~80 s air, ~110 s ground.
-- Done in the helper: `ingest`/`process` commands, queue, share copies, server fetch, inbox.
-- Next: live logger (8111), replay watcher + `run` service + autostart, install catalogue,
-  `doctor`, the Windows exe build (GitHub Actions) and Downloads page; then Phase 1 review.
+- Helper done: queue, share copies, server fetch, inbox, live logger (0.6 % of a core at the
+  default rates), replay watcher, `run` service (decode killed when a battle starts), `install`
+  (config + logon task, hidden via `conhost --headless`), `doctor`, Windows exe workflow,
+  Download section on the site. The frozen build was checked end to end on Linux.
+- Next: first run on the real PC (8111 field names, battle detection), install catalogue
+  (English names/prices; the decoder already uses the install when it finds it), Phase 1 review.
 - Server replays are the primary source; client replays add my instruments + session id.
 - Me = userId `110703665` (server replays have no author).
 - Real fixtures (git-ignored): `tests/fixtures/client/*.wrpl`, `tests/fixtures/server/<sid>/`.
