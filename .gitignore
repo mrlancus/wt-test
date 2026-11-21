@@ -30,3 +30,4 @@ build/
 # cloudflare
 .wrangler/
 node_modules/
+worker/node_modules/

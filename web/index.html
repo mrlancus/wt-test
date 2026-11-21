@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>wt-analytics</title>
+  <!-- Phase 1 working page. The designed UI (design system, reports, viewer) arrives in Phase 2. -->
+  <style>
+    :root { color-scheme: dark; --bg: #0e1012; --panel: #16191c; --line: #262a2f; --text: #d7dade; --dim: #8a9097; --ok: #5fb37a; --bad: #d06a5a; --warn: #d0a74f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 16px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 20px; }
+    section { border: 1px solid var(--line); background: var(--panel); padding: 16px; margin-bottom: 16px; }
+    h2 { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 12px; font-weight: 500; }
+    input, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); padding: 6px 10px; }
+    button { cursor: pointer; }
+    #drop { border: 1px dashed var(--line); padding: 28px; text-align: center; color: var(--dim); }
+    #drop.over { border-color: var(--text); color: var(--text); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { color: var(--dim); font-weight: 500; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .dim { color: var(--dim); }
+    #log { color: var(--dim); white-space: pre-wrap; margin-top: 10px; }
+    .wrap { overflow-x: auto; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>wt-analytics</h1>
+  <section id="login" hidden>
+    <h2>Log in</h2>
+    <form id="login-form"><input id="key" type="password" placeholder="API key" autocomplete="current-password" size="40"> <button>Log in</button></form>
+  </section>
+  <div id="app" hidden>
+    <section>
+      <h2>Upload client replays (.wrpl)</h2>
+      <div id="drop">Drop .wrpl files here, or <label><u>choose files</u><input id="files" type="file" accept=".wrpl" multiple hidden></label></div>
+      <div id="log"></div>
+    </section>
+    <section>
+      <h2>Matches</h2>
+      <div class="wrap"><table id="matches"><thead><tr>
+        <th>Started (UTC)</th><th>Map</th><th>Mode</th><th>Vehicles</th><th>Result</th><th class="num">K</th><th class="num">D</th><th class="num">Score</th><th>Server replay</th><th>Decode</th>
+      </tr></thead><tbody></tbody></table></div>
+    </section>
+    <section><h2>Data health</h2><div id="health" class="dim">…</div></section>
+  </div>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

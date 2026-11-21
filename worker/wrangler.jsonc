@@ -1,0 +1,26 @@
+// wt-analytics Worker. Deploy: `npm run deploy` (see README). Resource ids are not secrets.
+{
+  "name": "wt-analytics",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "assets": { "directory": "../web", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "vars": { "ME_USER_ID": "110703665" },
+  // Secret (wrangler secret put API_KEY): the key the helper and the browser log in with.
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "wt-analytics" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "wt-analytics", "database_id": "326cea19-3358-43b8-b973-f0a0b1ea5fab" }],
+  "queues": {
+    "producers": [{ "binding": "JOBS", "queue": "wt-jobs" }],
+    "consumers": [{ "queue": "wt-jobs", "max_batch_size": 1, "max_retries": 8, "dead_letter_queue": "wt-jobs-dlq" }]
+  },
+  "containers": [
+    {
+      "class_name": "Pipeline",
+      "scheduling_policy": "durable_object",
+      "images": { "base": { "dockerfile": "../Dockerfile.pipeline", "build_context": ".." } }
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "PIPELINE", "class_name": "Pipeline" }] },
+  "exports": { "Pipeline": { "type": "durable-object", "storage": "sqlite" } },
+  "observability": { "enabled": true }
+}

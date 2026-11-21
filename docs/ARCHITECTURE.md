@@ -37,22 +37,32 @@ The helper never runs analysis during a battle and stays below ~1 % CPU while lo
 ### 2. Cloudflare Worker (`worker/`)
 Plain JS ES modules, no build step, deployed with `wrangler`.
 - Serves `web/` (static assets) and a JSON API.
-- **Auth:** the site is behind Cloudflare Access (only your account); the helper uses an
-  Access service token.
-- **Uploads:** R2 multipart upload for large replays (bypasses request-size limits).
-- On upload or session-id notification, enqueues a pipeline job (Cloudflare Queues) and
-  schedules server-replay fetch.
+- **Auth:** one secret key (`API_KEY`, a Worker secret). The helper sends it as a bearer token;
+  the browser logs in once and keeps it in an HttpOnly cookie. Cloudflare Access can be added in
+  front later as a second layer. Static pages are public (they hold no data); all data is under
+  `/api/` and needs the key.
+- **Uploads:** `PUT /api/upload` with the raw client `.wrpl` (< 95 MB, client replays are a few MB).
+  The Worker reads the header for the session id, stores it with a sha256 check, records the match,
+  and queues the server-replay fetch. Re-uploading the same battle changes nothing.
+- **Jobs** (Cloudflare Queues, one message at a time, retries with backoff, dead-letter queue):
+  `fetch_server` → `decode`.
 - Answers dashboard queries from D1 (small summary tables) and streams Parquet/viewer packs
   from R2.
 
 ### 3. Pipeline container (`src/wt_analytics/pipeline/`, Cloudflare Containers)
 A Python 3.12 container image started on demand by the Worker.
-- **server_replay_fetch** – `GET https://wt-game-replays.warthunder.com/<session_hex>/NNNN.wrpl`
-  for NNNN = 0000, 0001, … until 404/403. No auth needed. Polite: one request at a time,
-  backoff and retries over several hours, since the replay appears some time after the battle.
-- **decode** – 3DHeat-Ext-WarThunder at a pinned version (`HEAT3D_NO_UPDATE=1`), pure Python,
-  runs on Linux; uses the uploaded install catalogue for names/economy. Output split into
-  per-event Parquet tables under `decoded/<decoder>-<version>/<session>/`.
+- **server replay fetch** runs in the Worker, not the container (`worker/src/jobs.js`):
+  `GET https://wt-game-replays.warthunder.com/<session_hex>/NNNN.wrpl` (302 to Gaijin's CDN) for
+  NNNN = 0000, 0001, … until 404/403, one request at a time, streamed straight into R2.
+  Each part is retried 6 times with backoff (the CDN resets connections); parts already stored
+  are skipped, so a retried job resumes. If part 0 is not there yet, the job is re-queued after
+  2 min, 10 min, 30 min, 1 h, 3 h, 12 h; after that the battle is decoded from the client replay alone.
+- **decode** – 3DHeat-Ext-WarThunder pinned to the v0.2.2 commit (`HEAT3D_NO_UPDATE=1`), pure
+  Python. Container: Python 3.14 on `standard-3` (2 vCPU, 8 GiB); the client and server replays
+  decode in parallel processes (peak ~2 GiB each). The wide table is split into per-event Parquet
+  tables sorted by track and time, dropping columns empty in that table (halves the size). The
+  Worker streams inputs into the container and outputs back to R2 (`worker/src/jobs.js`).
+  Names/economy from the install catalogue: later in Phase 1.
   On failure: raw kept, manifest status `pending_redecode`, shown on the Data Health page.
 - **derive** – DuckDB/polars over the decoded tables → `derived/<schema_version>/…` plus rows
   for the D1 summary tables.

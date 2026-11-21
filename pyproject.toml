@@ -8,12 +8,25 @@ dependencies = []
 [project.optional-dependencies]
 # PC helper app (Windows exe)
 helper = []
-# cloud pipeline container
-pipeline = []
+# cloud pipeline container. The decoder is pinned to an exact release (see common/schema.py).
+pipeline = [
+  "heat3d-ext-warthunder @ git+https://github.com/Holdi601/3DHeat-Ext-WarThunder@b0ad09f0a3942670280719265416fce90affa5e1",  # v0.2.2
+  "duckdb>=1.1",
+  "numpy>=1.26",
+]
+
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wt_analytics"]

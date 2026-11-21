@@ -67,8 +67,12 @@ instruments, my camera, and the session id. Keep both.
 - Files per battle: `<match>.parquet` (105 columns), `.match.json`, `.messages.parquet`,
   `.objectives.parquet`, `.flight.parquet`. Server outputs end in `_server`.
 - Decoded size: ground server table 30 MB + 8.5 MB messages; air server 32 MB + 8.7 MB.
-- Decode time on a 4-vCPU Xeon 2.1 GHz: client 10 s (air) / 24 s (ground); server **52 s (air) /
-  105 s (ground)** — over the ~1 min budget; profile in Phase 1.
+- Decode time (Xeon 2.1 GHz, one core per replay): client 10 s (air) / 24 s (ground); ground server
+  105 s on Python 3.12 → **85 s** with Python 3.14 and the checked `_rle` speed-up (`pipeline/accel.py`).
+  The rest is spread over pure-Python bit reading and table building (no single hot spot left).
+  Client and server decode in parallel, so a battle takes ~100 s in the container.
+- After the per-event split, the ground server tables are 14.8 MB positions + < 100 KB each for
+  hits, kills, weapons, fires, logistics (from 29 MB as one table).
 
 Conventions **[verified]** on the ground death (killer Type 90B, 520 m):
 - `x` east, `z` north, `y` up, metres. Bearing from A to B = `atan2(Δx, Δz)` in compass degrees.

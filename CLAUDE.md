@@ -43,11 +43,13 @@ Gaming PC (Windows)                     Cloudflare (private, behind Access)
 ## Module map
 | Path | What |
 |---|---|
-| `src/wt_analytics/common/` | config, logging, ids, shared schema constants |
-| `src/wt_analytics/helper/` | PC app: `live_logger`, `replay_watcher`, `queue`, `install_catalogue`, `los`, `doctor`, `cli` |
-| `src/wt_analytics/pipeline/` | cloud container: `decode`, `derive`, `server_replay_fetch`, `manifest`, `viewer_pack` |
-| `worker/` | Cloudflare Worker (plain JS ES modules, no build step) + `wrangler.toml` |
-| `web/` | static site: dashboard, reports, viewer (plain HTML/CSS/JS ES modules) |
+| `src/wt_analytics/common/schema.py` | decoder pin, `SCHEMA_VERSION`, decoded table layout |
+| `src/wt_analytics/helper/` | PC app (Phase 1, next): `live_logger`, `replay_watcher`, `queue`, `install_catalogue`, `los`, `doctor` |
+| `src/wt_analytics/pipeline/` | cloud container: `service` (HTTP job API), `decode` (3DHeat + per-event split), `summary` (D1 match row), `accel` (checked speed-ups for the pinned decoder) |
+| `Dockerfile.pipeline` | the container image (Python 3.14; built by `wrangler deploy`) |
+| `worker/` | Cloudflare Worker, plain JS ES modules: `index.js` (API, auth, upload, queue consumer), `jobs.js` (server-replay fetch, decode orchestration), `pipeline.js` (container Durable Object), `replay.js` (wrpl header), `util.js`; `schema.sql` (D1), `wrangler.jsonc` |
+| `web/` | static site served by the Worker. Now: a plain Phase 1 working page; designed UI from Phase 2 |
+| `tools/docker-proxy.sh` | docker wrapper for builds behind a TLS proxy (`WRANGLER_DOCKER_BIN`) |
 | `web/design/` | **the design system** (tokens.css, components.css) — created in Phase 2, then used everywhere |
 | `tools/` | one-off scripts (e.g. `dump-8111.ps1`) |
 | `docs/` | SPEC, ARCHITECTURE, DATA (verified facts), STATS (catalogue), PHASE0 |
@@ -64,8 +66,10 @@ derived/<schema_version>/<table>/...parquet
 los/<los_version>/<session>/...                                     (computed on the PC)
 viewer/<pack_version>/<session>.bin                                 (compact viewer pack)
 ```
-D1 holds the manifest (per-match status of every pipeline step) and small summary tables
-for fast lists/filters. Everything in D1 is rebuildable from R2.
+Decoded per source: `decoded/heat3d-0.2.2/<session>/{client,server}/{positions,hits,kills,weapons,fires,logistics,other}.parquet`
++ `match.json`, `messages/objectives/flight.parquet`, and `<session>/result.json`.
+D1 (`worker/schema.sql`): `matches` (one row per battle + status of every step) and `files`
+(every R2 object with size and sha256). Everything in D1 is rebuildable from R2.
 
 ## Coding standards
 - Python 3.12+, `uv`, wheel-only deps. Type hints everywhere, dataclasses/pydantic where useful.
@@ -102,8 +106,13 @@ screenshots → fresh Sonnet reviewer) for every UI piece — see `docs/SPEC.md`
 - Small, meaningful commits. Branch: `claude/tender-brahmagupta-cdjah0`.
 
 ## Status
-Phase 0 done (see `docs/PHASE0.md`, facts in `docs/DATA.md`). No pipeline code yet; packages
-are empty on purpose. Next: Phase 1, Cloudflare side first, waiting for the user's OK.
+Phase 0 done (`docs/PHASE0.md`, facts in `docs/DATA.md`).
+Phase 1 in progress:
+- Cloud side built and **verified end to end locally** (`wrangler dev` + Docker): upload → server
+  replay fetch (10 parts) → decode in container → R2 + D1 summary, ~2.5 min per ground battle.
+- R2 bucket, D1 db (`326cea19-…`) and queues `wt-jobs`/`wt-jobs-dlq` created on the account.
+- **Not deployed yet**: the account's API token lacks the Containers permission (user to add).
+- Next: deploy, then the helper exe (logger, watcher, upload queue, install catalogue).
 - Server replays are the primary source; client replays add my instruments + session id.
 - Me = userId `110703665` (server replays have no author).
 - Real fixtures (git-ignored): `tests/fixtures/client/*.wrpl`, `tests/fixtures/server/<sid>/`.
