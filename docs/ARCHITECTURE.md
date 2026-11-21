@@ -46,10 +46,11 @@ every push to `src/`, published as the GitHub release `helper`), linked from the
 - **inbox** — replays uploaded on the website wait in R2 `inbox/`; the helper downloads them,
   queues them and deletes them from R2.
 - **live_logger** (`live_logger.py`) — one thread, one keep-alive connection, a minimal HTTP
-  client (httpx cost 5 % of a core at these rates; this costs 0.6 %). Battle = `/indicators`
-  `valid: true`; ended after 5 s without it. Polls `/state` and `/indicators` 10 Hz,
+  client (httpx cost 5 % of a core at these rates; this costs 0.6 %). Battle = `/map_info.json`
+  `valid: true` (in the hangar `/state` and `/indicators` are valid too); ended after 5 s without
+  it. A recording cut off by a crash is closed off when the logger restarts. Polls `/state` and `/indicators` 10 Hz,
   `/map_obj.json` 5 Hz, `/hudmsg` and `/gamechat` 2 Hz (incremental ids), `/mission.json` 1 Hz,
-  `/map_info.json` every 5 s (+ `/map.img` when it changes), plus any endpoint found in the page's
+  `/map_info.json` 1 Hz (+ `/map.img` when it changes), plus any endpoint found in the page's
   scripts at 1 Hz. Raw responses → `staging/live/<UTC start>/<endpoint>.jsonl.zst`; uploads nothing.
   The queue's `raw_live` step gives a log to the replay whose start time is within 10 min of it;
   logs no replay claims go to `raw/live/unmatched/` after a day.

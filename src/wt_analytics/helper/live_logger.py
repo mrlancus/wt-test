@@ -6,8 +6,10 @@ shown or sent anywhere while a battle runs (rule 1). Each battle becomes a folde
 we don't understand yet are kept. `discovery.json` holds the page and its scripts; `meta.json`
 is written when the battle ends.
 
-A battle is running while `/indicators` says `"valid": true`; it has ended after `END_AFTER_S`
-seconds without that (or without the game answering).
+A battle is running while `/map_info.json` says `"valid": true` (verified: in the hangar it is
+false, while `/state` and `/indicators` are valid there for the hangar vehicle); it has ended
+after `END_AFTER_S` seconds without that (or without the game answering). A recording cut off
+by a crash or shutdown is closed off (meta.json from its files) when the logger starts again.
 
 CPU budget (< 1 % of a core while playing): one thread, one keep-alive connection and a
 minimal HTTP client — about 0.2 ms of CPU per request, ~30 requests/s at the default rates.
@@ -16,6 +18,7 @@ minimal HTTP client — about 0.2 ms of CPU per request, ~30 requests/s at the d
 from __future__ import annotations
 
 import base64
+import calendar
 import heapq
 import json
 import logging
@@ -36,10 +39,10 @@ TIMEOUT_S = 1.0
 END_AFTER_S = 5.0
 IDLE_PROBE_S = 1.0
 FLUSH_EVERY_S = 5.0
-BATTLE_SIGNAL = "/indicators"
+BATTLE_SIGNAL = "/map_info.json"
 
-#: Polling rates in Hz (configurable). hudmsg/gamechat are polled incrementally; map_info and
-#: map.img are kept once per battle and whenever map_info changes.
+#: Polling rates in Hz (configurable). hudmsg/gamechat are polled incrementally; map_info is the
+#: battle signal, and map.img is kept at the start and whenever map_info changes.
 DEFAULT_RATES: dict[str, float] = {
     "/state": 10,
     "/indicators": 10,
@@ -47,7 +50,7 @@ DEFAULT_RATES: dict[str, float] = {
     "/hudmsg": 2,
     "/gamechat": 2,
     "/mission.json": 1,
-    "/map_info.json": 0.2,
+    "/map_info.json": 1,
 }
 _JS_ENDPOINT = re.compile(r"""["'](/[a-z_]+(?:\.json)?)[?"']""")
 _NOT_POLLED = {"/", "/hudmsg", "/gamechat", "/map.img"}
@@ -182,6 +185,7 @@ class LiveLogger:
         self._stop.set()
 
     def _main(self) -> None:
+        close_cut_off(self.root)
         while not self._stop.is_set():
             battle = None
             try:
@@ -255,11 +259,9 @@ class LiveLogger:
         return endpoint
 
     def _after(self, battle: _Battle, endpoint: str, body: str) -> None:
-        if endpoint == BATTLE_SIGNAL:
-            if _is_valid(body):
-                battle.last_valid = time.time()
-        elif endpoint == "/map_info.json":
-            if body != battle.map_info and _is_valid(body):  # first time, and whenever the map changes
+        if endpoint == BATTLE_SIGNAL and _is_valid(body):
+            battle.last_valid = time.time()
+            if body != battle.map_info:  # first time, and whenever the map changes
                 battle.map_info = body
                 self._save_map_image(battle)
         elif endpoint == "/hudmsg":
@@ -310,3 +312,18 @@ def _max_id(current: int, items) -> int:
 def completed_battles(live_root: Path) -> list[tuple[Path, dict]]:
     """Recorded battles that have ended (have meta.json), oldest first."""
     return [(m.parent, json.loads(m.read_text(encoding="utf-8"))) for m in sorted(live_root.glob("*/meta.json"))]
+
+
+def close_cut_off(live_root: Path) -> None:
+    """Recordings without meta.json were cut off (crash, shutdown): close them off from their files."""
+    for folder in sorted(p for p in live_root.glob("*") if p.is_dir() and not (p / "meta.json").exists()):
+        try:
+            started = calendar.timegm(time.strptime(folder.name, "%Y%m%dT%H%M%SZ"))
+        except ValueError:
+            continue  # not a recording
+        files = [f for f in folder.iterdir() if f.is_file()]
+        ended = max([started, *(f.stat().st_mtime for f in files)])
+        endpoints = sorted("/" + f.name.removesuffix(".jsonl.zst") for f in files if f.name.endswith(".jsonl.zst"))
+        meta = {"started": started, "ended": ended, "endpoints": endpoints, "cut_off": True}
+        (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        log.info("closed off cut-off recording %s", folder.name)

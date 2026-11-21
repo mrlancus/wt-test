@@ -9,12 +9,22 @@ Verified on (2026-11-21), game replay version **101421**, decoder 3DHeat-Ext-War
   `72c412c100155b25`: client + server.
 
 ## 1. Local API, `http://127.0.0.1:8111`
-Not inspected on the real game yet. The live logger stores every raw response (and the page + its
-scripts in `discovery.json`), so the first battle recorded answers this. It assumes **[documented]**
-that `/indicators` has `"valid": true` only while in a battle; to check on the first real log. Known/expected endpoints: `/state`, `/indicators`, `/map_obj.json`,
-`/map_info.json`, `/mission.json`, `/hudmsg?lastEvt=N&lastDmg=N`, `/gamechat?lastId=N`, `/map.img`.
-`map_obj.json` holds only what the minimap shows. The map image + `map_info.json` are needed for
-2D map alignment. **[unknown]**
+Checked in the hangar (2026-11-21) **[verified]**:
+- `/map_info.json` → `{"valid": false}` in the hangar: **the battle signal** (the live logger uses it).
+- `/state` and `/indicators` → `"valid": true` in the hangar too, describing the hangar vehicle
+  (e.g. `"army": "air", "type": "spitfire_mk5c"`), so they can't tell a battle from the hangar.
+- `/indicators` fields (air): `army`, `type`, `speed`, `pedals*`, `stick_*`, `vario`, `altitude_*`,
+  `aviahorizon_roll/pitch`, `bank`, `turn`, `compass`, `clock_*`, `manifold_pressure`, `rpm`,
+  `oil_*`, `water_temperature`, `mixture*`, `fuel`, `airbrake_indicator`, `gears`, `gear_lamp_*`,
+  `flaps`, `trimmer*`, `throttle*`, `weapon1`, `prop_pitch`, `radiator_lever`, `blister1/2`.
+- `/state` fields (air) have units in the key: `"H, m"`, `"TAS, km/h"`, `"IAS, km/h"`, `"M"`,
+  `"AoA, deg"`, `"AoS, deg"`, `"Ny"`, `"Vy, m/s"`, `"Wx, deg/s"`, `"Mfuel, kg"`, `"Mfuel0, kg"`,
+  and per engine `"throttle 1, %"`, `"RPM 1"`, `"power 1, hp"`, `"manifold pressure 1, atm"`,
+  `"water temp 1, C"`, `"oil temp 1, C"`, `"pitch 1, deg"`, `"thrust 1, kgs"`, `"efficiency 1, %"`.
+Ground fields, `/map_obj.json`, `/hudmsg`, `/gamechat` and `/mission.json` in battle: from the
+first real live log **[unknown]**. The page's scripts are kept in each log's `discovery.json`.
+`map_obj.json` holds only what the minimap shows; the map image + `map_info.json` are needed for
+2D map alignment.
 
 ## 2. Identifying me **[verified]**
 - Client replay: match JSON `author` = `"[MNSTR] mrlancus"`, `authorUserId` = `110703665`.

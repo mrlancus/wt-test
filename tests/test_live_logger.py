@@ -28,8 +28,10 @@ def fake_game(battle: dict, hud_requests: list) -> http.server.ThreadingHTTPServ
                 body = 'fetch("/new_thing.json?x"); x = "/a"'
             elif url.path == "/a":
                 body = "<html>not an endpoint</html>"
-            else:
-                body = {"valid": running, "path": url.path}
+            elif url.path == "/map_info.json":
+                body = {"valid": running}
+            else:  # like the real game: /state and /indicators are valid in the hangar too
+                body = {"valid": True, "path": url.path}
             data = (body if isinstance(body, str) else json.dumps(body)).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
@@ -54,19 +56,23 @@ def test_records_one_battle_from_start_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr(live_logger, "END_AFTER_S", 1.0)
     monkeypatch.setattr(live_logger, "IDLE_PROBE_S", 0.1)
 
+    cut_off = tmp_path / "20261121T215038Z"  # an earlier recording the helper was stopped during
+    cut_off.mkdir()
+    (cut_off / "state.jsonl.zst").write_bytes(b"")
     logger = live_logger.LiveLogger(tmp_path)
     thread = logger.start()
     deadline = time.time() + 10
-    while not list(tmp_path.glob("*/meta.json")) and time.time() < deadline:
+    while len(list(tmp_path.glob("*/meta.json"))) < 2 and time.time() < deadline:
         time.sleep(0.1)
     logger.stop()
     thread.join(5)
     server.shutdown()
 
-    [(folder, meta)] = live_logger.completed_battles(tmp_path)
+    [(old, old_meta), (folder, meta)] = live_logger.completed_battles(tmp_path)
+    assert old == cut_off and old_meta["cut_off"] and old_meta["started"] == 1795297838 and old_meta["endpoints"] == ["/state"]
     assert not logger.in_battle.is_set()
     assert battle["from"] <= meta["started"] <= battle["from"] + 0.3
-    assert battle["to"] - 0.3 <= meta["ended"] <= battle["to"]
+    assert battle["to"] - 1.1 <= meta["ended"] <= battle["to"]  # the signal is read once a second
     assert "/new_thing.json" in meta["endpoints"] and "/a" not in meta["endpoints"]  # found in the script; JSON only
     assert hud_requests == list(range(len(hud_requests))) and len(hud_requests) >= 3  # incremental ids
     with (folder / "state.jsonl.zst").open("rb") as f:
