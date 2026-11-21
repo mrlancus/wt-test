@@ -1,80 +1,86 @@
 # desk-hub: the Samba share
 
-desk-hub only stores files for wt-analytics. It runs no wt-analytics processing, so Klipper is
-never starved. Samba's own use is small (tens of MB of RAM, idle CPU when nothing is copied).
-This does not change the desk-hub project itself.
+desk-hub only stores files for wt-analytics; no processing runs there, so Klipper is never
+starved. Samba uses a few tens of MB of RAM and no CPU while idle. Nothing in the desk-hub
+project itself changes. Everything below runs over SSH (`ssh <you>@desk-hub`).
 
-## 1. On desk-hub (Ubuntu Server)
-Replace `192.168.1.0/24` with your LAN, and `/srv/wt` with wherever the big disk is mounted.
+## 1. Look before changing anything
+Your LAN address and range (the `inet` line, e.g. `192.168.1.40/24` → range `192.168.1.0/24`):
+```bash
+ip -4 -brief addr
+```
+Disks and free space — pick the big one for the share:
+```bash
+df -h -x tmpfs -x devtmpfs
+```
+Is Samba already installed or in use (if this prints shares, tell Claude before going on)?
+```bash
+systemctl is-active smbd; testparm -s 2>/dev/null | grep '^\['
+```
 
+## 2. Install and create the share
+Set these two for your machine first (same SSH session):
+```bash
+WT_DIR=/srv/wt
+```
+```bash
+WT_LAN=192.168.1.0/24
+```
+Install Samba (small; does not touch Klipper):
 ```bash
 sudo apt update && sudo apt install -y samba
 ```
-
+A login-less system user that owns the files:
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin wtshare
 ```
-
+Its Samba password (you type it twice; the PC uses it to connect):
 ```bash
 sudo smbpasswd -a wtshare
 ```
-
+The folder:
 ```bash
-sudo mkdir -p /srv/wt && sudo chown wtshare:wtshare /srv/wt && sudo chmod 750 /srv/wt
+sudo mkdir -p "$WT_DIR" && sudo chown wtshare:wtshare "$WT_DIR" && sudo chmod 750 "$WT_DIR"
 ```
-
-Add this share to the end of `/etc/samba/smb.conf` (`sudo nano /etc/samba/smb.conf`):
-
-```ini
-[wt]
-   path = /srv/wt
-   valid users = wtshare
-   force user = wtshare
-   read only = no
-   browseable = no
-   guest ok = no
-   create mask = 0640
-   directory mask = 0750
-   hosts allow = 127.0.0.1 192.168.1.0/24
-   hosts deny = 0.0.0.0/0
-```
-
-And in the `[global]` section, make sure these lines are present (LAN only, modern protocol):
-
-```ini
-   server min protocol = SMB3
-   map to guest = never
-   interfaces = lo 192.168.1.0/24
-   bind interfaces only = yes
-```
-
-Check the config and restart:
-
+Back up the config, then add the share (LAN only, no guests, SMB3 or newer):
 ```bash
-testparm -s
+sudo cp -n /etc/samba/smb.conf /etc/samba/smb.conf.before-wt
 ```
-
 ```bash
-sudo systemctl restart smbd && sudo systemctl enable smbd
+printf '\n[wt]\n   path = %s\n   valid users = wtshare\n   force user = wtshare\n   read only = no\n   browseable = no\n   guest ok = no\n   create mask = 0640\n   directory mask = 0750\n   server min protocol = SMB3\n   hosts allow = 127.0.0.1 %s\n   hosts deny = 0.0.0.0/0\n' "$WT_DIR" "$WT_LAN" | sudo tee -a /etc/samba/smb.conf
 ```
-
-If `ufw` is on, allow Samba from the LAN only:
-
+Check it (must print no errors, and a `[wt]` section):
 ```bash
-sudo ufw allow from 192.168.1.0/24 to any app Samba
+testparm -s 2>&1 | sed -n '/^\[wt\]/,$p'
 ```
-
-## 2. On the gaming PC (Windows 11)
-Map the share as `W:` (replace `desk-hub` with its hostname or IP). It asks for the
-`wtshare` password; tick "Remember my credentials".
-
+Start it now and at boot:
 ```bash
-net use W: \\desk-hub\wt /user:wtshare /persistent:yes
+sudo systemctl enable --now smbd && sudo systemctl restart smbd
+```
+If the firewall is on (`sudo ufw status` says active), allow Samba from the LAN only:
+```bash
+sudo ufw allow from "$WT_LAN" to any app Samba
+```
+Test the login locally (enter the `wtshare` password; should print `.` and `..`):
+```bash
+smbclient //localhost/wt -U wtshare -c ls
+```
+(`sudo apt install -y smbclient` first if it is missing.)
+
+## 3. On the gaming PC (Windows 11)
+In a Command Prompt, with desk-hub's IP from step 1 (or its hostname); it asks for the
+`wtshare` password:
+```bash
+net use W: \\192.168.1.40\wt /user:wtshare /persistent:yes
+```
+`W:` then appears in Explorer. In the helper's config: `share = "W:/"` — it creates `raw`,
+`decoded` and `manifest` itself. If the share is offline, battles wait in the helper's staging
+folder and are copied later.
+
+## Undo
+```bash
+sudo cp /etc/samba/smb.conf.before-wt /etc/samba/smb.conf && sudo systemctl restart smbd
 ```
 
-Then in the helper's config: `share = "W:/"` — the helper creates `raw`, `decoded` and
-`manifest` in it itself. If the share is offline, the helper keeps battles in its staging folder and
-copies them later.
-
-## 3. Disk space
-Expect ~50–70 MB per battle (raw + decoded). Check free space on desk-hub with `df -h /srv/wt`.
+## Disk space
+~50–70 MB per battle (raw + decoded). Check with `df -h "$WT_DIR"` (or `df -h /srv/wt`).
