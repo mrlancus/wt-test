@@ -1,0 +1,32 @@
+# secrets
+.env
+.env.*
+.dev.vars
+*.secret*
+config/local*.toml
+# game data and personal data – never commit (rules 3/4)
+*.wrpl
+*.zip
+*.parquet
+*.3dheat
+*.glb
+*.jsonl.zst
+tests/fixtures/
+data/
+out/
+levels/
+# databases
+*.duckdb
+*.sqlite
+*.db
+# python / build
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+# cloudflare
+.wrangler/
+node_modules/
