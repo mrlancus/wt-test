@@ -3,41 +3,36 @@
 | # | Step | Status |
 |---|---|---|
 | 0 | `CLAUDE.md` + repo skeleton | done |
-| 1 | Inspect the 8111 API | **needs you**: run `tools/dump-8111.ps1` in a battle |
-| 2 | Decode one client + one server replay, report contents | **needs you**: upload replays |
-| 3 | Get server replays automatically | worked out (below), to confirm on your session ids |
-| 4 | Map image alignment; terrain export for LOS | **needs you**: 8111 dump (map image) + replay of the same match |
-| 5 | Plan changes | done: website-first, see `ARCHITECTURE.md` |
+| 1 | Inspect the 8111 API | deferred to the helper (Phase 1); not needed to start |
+| 2 | Decode client + server replays | **done** on 1 air + 1 ground battle — see `DATA.md` |
+| 3 | Get server replays automatically | **done**: works with no login; needs retry logic for the CDN |
+| 4 | Map alignment; terrain for LOS | deferred: map image comes from 8111 (helper), terrain needs the install (helper) |
+| 5 | Plan changes | below |
 
-## What I need from you
-1. **Turn on replay saving:** in the game, *Options → Main parameters* (General), tick
-   **"Save replays"** / **"Autosave replays of battles"**. Replays then land in
-   `<War Thunder folder>\Replays\` (Steam: `C:\Program Files (x86)\Steam\steamapps\common\War Thunder\Replays`).
-2. Play **one ground battle** with `tools/dump-8111.ps1` running during it
-   (`powershell -ExecutionPolicy Bypass -File dump-8111.ps1 -Seconds 120`).
-   Ideally do one air battle too.
-3. Upload to this session: the zip(s) from your Desktop and the `.wrpl` file(s) of those battles.
-   I'll download the server replay myself from the session id.
+## Key findings
+1. **Server replays are the main source.** They cover the whole battle, every tank at ~24 Hz
+   with turret and view direction, full missile paths, and hit outcomes. Client replays stop
+   when you leave and have only ~3 Hz for other tanks with no view data.
+2. **Automatic fetch works.** Session id from the client replay header → plain HTTPS download
+   from Gaijin's CDN, no login. Parts until 404. The CDN resets connections now and then,
+   so every part needs retries.
+3. **"How long was he aiming at me" is measurable.** On your ground death, the killer's view
+   was on you (< 1°) for 3.5 s before the shot at 520 m.
+4. **Your cockpit instruments are only in the client replay** (air). Keep both replays.
+5. **Missed tank rounds are probably not recorded.** `shot` rows are hits. Ground accuracy
+   (hits / rounds fired) may need the 8111 log (ammo count over time) — to check in Phase 1.
+6. **Names and prices need your install.** The decoder in the cloud only sees ids. The helper
+   uploads a small name/price catalogue from your install.
+7. **Decoding is slow-ish:** a ground server replay took 105 s on a 4-vCPU cloud machine.
+   Profile in Phase 1; acceptable for a background job anyway.
 
-## Server replays — how (step 3)
-- Session id: u64 at byte 732 of any client `.wrpl` header, written as 16-digit hex.
-- URL: `https://wt-game-replays.warthunder.com/<hex>/0000.wrpl`, then `0001`, … until 404/403.
-  No login needed (wrpl-inspector does exactly this).
-- Plan: the helper reads the id the moment the client replay is written and sends it to the
-  API. The cloud retries the fetch with backoff (5 min, 15 min, 1 h, 3 h, 12 h) and downloads
-  one part at a time.
-- **To confirm on your data:** how soon replays appear, and whether every random battle has
-  one. If some don't, those matches just keep the client replay (less data on other players'
-  view direction).
-- **Fallback without client replays:** the session id isn't known to be available from 8111.
-  So "save replays" must be on for automatic fetching.
+## Changes to the plan
+- Server replay fetch is required, not optional; keep client replays too.
+- Ground accuracy: derive rounds fired from the 8111 ammo/indicator log if the replay lacks it.
+- 8111 inspection and map alignment move into Phase 1 (helper) instead of a separate dump.
+- Decode time budget: aim for < 60 s after profiling; the pipeline is async so the report may
+  take ~2 min after a battle.
 
-## Proposed changes to the plan
-1. **Website-first** (approved): helper exe + Cloudflare Worker/R2/D1/Container. Laptop optional.
-2. **Decode in the cloud** with 3DHeat (pure Python, works on Linux). The helper uploads a
-   small names/economy catalogue built from your install so the cloud output has English
-   names and prices.
-3. **LOS on the PC**: terrain extraction needs the game's Oodle DLL and must stay local anyway.
-4. Cross-check decoder: **wrpl-inspector** (Go, AGPL) reads the same format. We'd use it only as
-   an external cross-check tool, never vendored, to keep licences clean.
-   **WrplReplayParser** (C++) needs compiling and supports one replay version; skip it.
+## Next (Phase 1, needs your OK)
+Cloudflare side first: Worker + R2 + D1 + Container, uploads, server-replay fetch, decode,
+manifest. Then the helper exe. I'll need a Cloudflare API token (secure form) and your account id.

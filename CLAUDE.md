@@ -102,7 +102,8 @@ screenshots → fresh Sonnet reviewer) for every UI piece — see `docs/SPEC.md`
 - Small, meaningful commits. Branch: `claude/tender-brahmagupta-cdjah0`.
 
 ## Status
-Phase 0 (verify) in progress. Skeleton and docs exist; no pipeline code yet (packages are
-empty on purpose; code arrives in Phase 1).
-Blocked on real data from the user: one client replay, one server replay, an 8111 dump
-(see `docs/PHASE0.md` → "What I need from you").
+Phase 0 done (see `docs/PHASE0.md`, facts in `docs/DATA.md`). No pipeline code yet; packages
+are empty on purpose. Next: Phase 1, Cloudflare side first, waiting for the user's OK.
+- Server replays are the primary source; client replays add my instruments + session id.
+- Me = userId `110703665` (server replays have no author).
+- Real fixtures (git-ignored): `tests/fixtures/client/*.wrpl`, `tests/fixtures/server/<sid>/`.

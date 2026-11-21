@@ -4,8 +4,8 @@ Personal post-match analytics for War Thunder, like Leetify for CS. It records e
 (air and ground), keeps the raw data forever, and shows reports and a replay viewer on a
 private website.
 
-**Status:** Phase 0 (verification). Nothing to install yet. See [`docs/PHASE0.md`](docs/PHASE0.md)
-for what's needed next.
+**Status:** Phase 0 done (verified on real replays). Nothing to install yet. See [`docs/PHASE0.md`](docs/PHASE0.md)
+for findings and next steps.
 
 ## How it will work
 1. Open your private site (Cloudflare, login required) and download **wt-helper.exe** from
