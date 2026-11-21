@@ -39,16 +39,24 @@ The folder:
 ```bash
 sudo mkdir -p "$WT_DIR" && sudo chown wtshare:wtshare "$WT_DIR" && sudo chmod 750 "$WT_DIR"
 ```
-Back up the config, then add the share (LAN only, no guests, SMB3 or newer):
+Back up the config, then add the share (home networks only, no guests):
 ```bash
-sudo cp -n /etc/samba/smb.conf /etc/samba/smb.conf.before-wt
+sudo cp --update=none /etc/samba/smb.conf /etc/samba/smb.conf.before-wt
 ```
 ```bash
-printf '\n[wt]\n   path = %s\n   valid users = wtshare\n   force user = wtshare\n   read only = no\n   browseable = no\n   guest ok = no\n   create mask = 0640\n   directory mask = 0750\n   server min protocol = SMB3\n   hosts allow = 127.0.0.1 192.168. 10. 172.16.0.0/12\n   hosts deny = 0.0.0.0/0\n' "$WT_DIR" | sudo tee -a /etc/samba/smb.conf
+printf '\n[wt]\n   path = %s\n   valid users = wtshare\n   force user = wtshare\n   read only = no\n   browseable = no\n   guest ok = no\n   create mask = 0640\n   directory mask = 0750\n   hosts allow = 127.0.0.1 192.168. 10. 172.16.0.0/12\n   hosts deny = 0.0.0.0/0\n' "$WT_DIR" | sudo tee -a /etc/samba/smb.conf
 ```
-Check it (must print no errors, and a `[wt]` section):
+SMB3 or newer only (a server-wide setting, so it goes under `[global]`):
 ```bash
-testparm -s 2>&1 | sed -n '/^\[wt\]/,$p'
+sudo sed -i '/^\[global\]/a \   server min protocol = SMB3' /etc/samba/smb.conf
+```
+Check it (must print `server min protocol = SMB3`, no errors, and a `[wt]` section):
+```bash
+testparm -s 2>&1 | grep -iE "min protocol|^\[wt\]" ; testparm -s 2>&1 | sed -n '/^\[wt\]/,$p'
+```
+The old NetBIOS name service isn't needed (the PC finds desk-hub as `deskhub.local`):
+```bash
+sudo systemctl disable --now nmbd
 ```
 Start it now and at boot:
 ```bash
@@ -60,9 +68,11 @@ for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do sudo ufw allow from $net 
 ```
 Test the login locally (enter the `wtshare` password; should print `.` and `..`):
 ```bash
+sudo apt install -y smbclient
+```
+```bash
 smbclient //localhost/wt -U wtshare -c ls
 ```
-(`sudo apt install -y smbclient` first if it is missing.)
 
 ## 3. On the gaming PC (Windows 11)
 In a Command Prompt; it asks for the `wtshare` password (not the SSH one). Use the name, not the
