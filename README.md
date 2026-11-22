@@ -20,7 +20,7 @@ Phase 0 findings: [`docs/PHASE0.md`](docs/PHASE0.md).
    appears on the site a minute or two later. Only small summary data goes to Cloudflare.
    Its log: `<staging>\logs\helper.log`.
 4. Old replays: drag them onto the site's *Upload* page (the PC picks them up), or
-   `wt-helper ingest <folder>`.
+   `wt-helper ingest <folder>`. `wt-helper redecode` decodes stored battles again from desk-hub.
 
 Nothing is shown during a match. Everything is post-match only.
 

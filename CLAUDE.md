@@ -40,7 +40,7 @@ Gaming PC: wt-helper ──SMB──► desk-hub Samba share W:\  (raw replays, 
 | Path | What |
 |---|---|
 | `src/wt_analytics/common/` | `schema.py` (decoder pin, `SCHEMA_VERSION`, decoded table layout), `config.py` (the TOML config) |
-| `src/wt_analytics/helper/` | PC app: `cli` (`wt-helper install/uninstall/run/doctor/ingest/process`), `service` (`run` loop), `live_logger` (8111 → zstd JSONL), `replay_watcher`, `ingest` (staging queue + steps), `share` (verified copies), `server_fetch`, `api` (site client), `autostart` (config + HKCU Run key), `doctor`. Next: `install_catalogue`, `los` |
+| `src/wt_analytics/helper/` | PC app: `cli` (`wt-helper install/uninstall/run/doctor/ingest/process/redecode`), `service` (`run` loop), `live_logger` (8111 → zstd JSONL), `replay_watcher`, `ingest` (staging queue + steps), `share` (verified copies), `server_fetch`, `api` (site client), `autostart` (config + HKCU Run key), `doctor`. Next: `install_catalogue`, `los` |
 | `src/wt_analytics/pipeline/` | decoding on the PC: `battle` (client+server in parallel, low priority, killed when a battle starts), `decode` (3DHeat + per-event split), `summary` (match row), `accel` (checked speed-ups for the pinned decoder) |
 | `worker/` | Cloudflare Worker, plain JS ES modules: `index.js` (API, auth, upload inbox, match rows), `replay.js` (wrpl header), `util.js`; `schema.sql` (D1), `wrangler.jsonc` |
 | `web/` | static site served by the Worker. Now: a plain Phase 1 working page; designed UI from Phase 2 |

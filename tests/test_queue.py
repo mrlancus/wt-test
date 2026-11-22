@@ -113,3 +113,35 @@ def test_battle_start_interrupts_decode_and_live_log_is_matched(tmp_path, monkey
 
 def fake_fetch_missing(session, into):
     raise ingest.NotAvailableYet()
+
+
+@pytest.mark.skipif(not AIR_CLIENT.exists(), reason="real replay fixture not present")
+def test_redecode_restages_a_stored_battle_from_the_share(tmp_path, monkeypatch):
+    (tmp_path / "share").mkdir()
+    cfg = Config(share=tmp_path / "share", staging=tmp_path / "staging", replays=None, api_url="http://x", api_key="k", me_user_id="1")
+
+    def fetch(session, into):
+        into.mkdir(parents=True, exist_ok=True)
+        (into / "0000.wrpl").write_bytes(b"part0")
+
+    failed = BattleResult("heat3d-0.2.2", 1, errors={"client": "OSError", "server": "OSError"})
+    monkeypatch.setattr(ingest, "fetch_server_replay", fetch)
+    monkeypatch.setattr(ingest, "decode_battle", lambda inputs, out, me, should_stop: failed)
+    queue = ingest.Queue(cfg, FakeApi())
+    session = queue.add(AIR_CLIENT).session
+    queue.run_due()
+    assert not (cfg.staging / session).exists() and queue.stored_sessions(failed_only=True) == [session]
+
+    seen = {}
+
+    def decode_ok(inputs, out, me, should_stop):
+        seen.update({s: [p.read_bytes() for p in files] for s, files in inputs.items()})
+        (out / "server").mkdir(parents=True)
+        return BattleResult("heat3d-0.2.2", 1, sources={"server": []}, summary={"map": "air_afghan"})
+
+    monkeypatch.setattr(ingest, "decode_battle", decode_ok)
+    job = queue.redecode(session)
+    assert job.done == list(ingest.STEPS[:4])
+    queue.run_due()
+    assert seen == {"client": [AIR_CLIENT.read_bytes()], "server": [b"part0"]}
+    assert queue.stored_sessions(failed_only=True) == []

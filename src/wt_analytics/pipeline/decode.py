@@ -6,6 +6,7 @@ into per-event Parquet tables (sorted by track, time; columns that are empty in 
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,7 +43,8 @@ def decode(inputs: list[Path], out: Path) -> Decoded:
     """Decode the replay files of one source (one client .wrpl, or a server replay's parts) into `out`."""
     check_version()
     accel.install()
-    with tempfile.TemporaryDirectory() as tmp:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=out.parent, prefix=".decode-") as tmp:  # same drive as `out`
         status = heat3d_cli.main([*map(str, inputs), "-o", tmp, "--loose"])
         tables = [p for p in Path(tmp).rglob("*.parquet") if p.name.count(".") == 1]
         if status != 0 or len(tables) != 1:
@@ -55,7 +57,7 @@ def decode(inputs: list[Path], out: Path) -> Decoded:
             src = table.with_name(f"{name}.{suffix}")
             if src.exists():
                 dst = out / suffix
-                src.replace(dst)
+                shutil.move(src, dst)
                 files.append(dst)
     return Decoded(name, files)
 

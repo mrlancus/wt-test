@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     ingest = sub.add_parser("ingest", help="queue client replays (.wrpl files or folders of them) and process them")
     ingest.add_argument("paths", nargs="+", type=Path)
     sub.add_parser("process", help="pull website uploads and advance every queued battle that is due")
+    redecode = sub.add_parser("redecode", help="decode stored battles again from the share")
+    redecode.add_argument("sessions", nargs="*", help="session ids (default: every battle whose decode failed)")
+    redecode.add_argument("--all", action="store_true", help="every stored battle")
     args = ap.parse_args(argv)
     path = args.config or config_path()
 
@@ -69,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"skipped {replay.name}: {e}")
                     continue
                 print(f"queued {replay.name}: {job.map} {job.started} session {job.session}")
+    elif args.command == "redecode":
+        sessions = args.sessions or queue.stored_sessions(failed_only=not args.all)
+        for session in sessions:
+            queue.redecode(session)
+        print(f"{len(sessions)} battles to decode again")
     else:
         print(f"{queue.pull_inbox()} uploads pulled from the website")
     for job in queue.run_due():

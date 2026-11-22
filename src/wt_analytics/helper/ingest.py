@@ -86,6 +86,33 @@ class Queue:
         self._save(job)
         return job
 
+    def redecode(self, session: str) -> Job:
+        """Decode a stored battle again from its raw files on the share (new decoder, or a failed decode)."""
+        folder = self.cfg.staging / session
+        if (folder / "state.json").exists():
+            return self._load(folder)
+        job = Job(**json.loads((self.share.root / f"manifest/{session}.json").read_text(encoding="utf-8")))
+        job.done, job.result, job.next_try, job.last_error = list(STEPS[: STEPS.index("decode")]), None, 0.0, None
+        for rel, digest in job.hashes.items():
+            if rel.startswith(("raw/replays/client/", f"raw/replays/server/{session}/")):
+                source = "client" if "/client/" in rel else "server"
+                dst = folder / source / Path(rel).name
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.share.root / rel, dst)
+                if sha256(dst) != digest:
+                    raise OSError(f"{rel} on the share differs from its manifest")
+        self._save(job)
+        return job
+
+    def stored_sessions(self, failed_only: bool) -> list[str]:
+        """Battles on the share (by manifest); `failed_only`: those where no source decoded."""
+        sessions = []
+        for path in sorted((self.share.root / "manifest").glob("*.json")):
+            result = json.loads(path.read_text(encoding="utf-8")).get("result") or {}
+            if not failed_only or not result.get("sources"):
+                sessions.append(path.stem)
+        return sessions
+
     def pull_inbox(self) -> int:
         """Queue replays uploaded on the website, then remove them from the website's inbox."""
         added = 0
@@ -187,6 +214,7 @@ class Queue:
         inputs = {s: sorted((folder / s).glob("*.wrpl")) for s in ("client", "server")}
         result = decode_battle(inputs, out, self.cfg.me_user_id, should_stop=self._should_pause)
         job.result = asdict(result)
+        out.mkdir(parents=True, exist_ok=True)  # also when nothing decoded: the result records why
         (out / "result.json").write_text(json.dumps(job.result, indent=1), encoding="utf-8")
         return True
 

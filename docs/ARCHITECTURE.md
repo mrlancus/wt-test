@@ -45,6 +45,10 @@ every push to `src/`, published as the GitHub release `helper`), linked from the
   2 min, 10 min, 30 min, 1 h, 3 h, 12 h, then decode from the client replay alone (at once for
   battles more than a day old: an imported backlog doesn't wait for server replays that are gone).
   `ingest` skips files that aren't replays and says so.
+- **redecode** — `wt-helper redecode [session…] [--all]` (default: battles where nothing decoded)
+  copies a battle's raw replays back from the share into staging (checked against the manifest's
+  sha256) and runs decode → publish → manifest → summary again. Used after a decoder upgrade or a
+  failed decode.
 - **inbox** — replays uploaded on the website wait in R2 `inbox/`; the helper downloads them,
   queues them and deletes them from R2.
 - **live_logger** (`live_logger.py`) — one thread, one keep-alive connection, a minimal HTTP
