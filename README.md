@@ -12,7 +12,8 @@ Phase 0 findings: [`docs/PHASE0.md`](docs/PHASE0.md).
 ## How it will work
 1. Set up the desk-hub share once ([`docs/LAPTOP.md`](docs/LAPTOP.md)) and map it as `W:` on the PC.
 2. Download **wt-helper.exe** from the site's *Download* section and run once, in a Command Prompt:
-   `wt-helper.exe install --share W:/ --key <site key> --user-id <your userId>`, then `wt-helper.exe doctor`.
+   `cmdkey /add:deskhub.local /user:wtshare /pass` (saves the share password), then
+   `wt-helper.exe install --share \\deskhub.local\wt --key <site key> --user-id <your userId>`, then `wt-helper.exe doctor`.
    It then starts hidden at every logon (`wt-helper.exe uninstall` stops that).
 3. Play (with "save replays" on in the game). During a battle the helper only records the game's
    local API (< 1 % CPU). After it, it takes your replay, fetches the server replay, decodes at low

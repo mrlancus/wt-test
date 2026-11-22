@@ -106,6 +106,7 @@ class Queue:
 
     def stored_sessions(self, failed_only: bool) -> list[str]:
         """Battles on the share (by manifest); `failed_only`: those where no source decoded."""
+        self.share.check()  # offline must not look like "nothing stored"
         sessions = []
         for path in sorted((self.share.root / "manifest").glob("*.json")):
             result = json.loads(path.read_text(encoding="utf-8")).get("result") or {}

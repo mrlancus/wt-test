@@ -82,7 +82,14 @@ net use W: \\deskhub.local\wt /user:wtshare /persistent:yes
 ```
 If `W:` ever fails to reconnect after a reboot, give desk-hub a fixed address in the router's DHCP
 settings (keep using the name).
-`W:` then appears in Explorer. In the helper's config: `share = "W:/"` — it creates `raw`,
+`W:` is for you in Explorer. Windows often leaves a mapped drive "Unavailable" after a reboot
+until it's opened in Explorer, so the helper uses the network path instead, with the password
+saved in Windows (it asks for the `wtshare` password):
+```bash
+cmdkey /add:deskhub.local /user:wtshare /pass
+```
+Then `Test-Path \\deskhub.local\wt` must print `True`, and the helper's share is
+`\\deskhub.local\wt` (`wt-helper.exe install --share \\deskhub.local\wt …`). It creates `raw`,
 `decoded` and `manifest` itself. If the share is offline, battles wait in the helper's staging
 folder and are copied later.
 

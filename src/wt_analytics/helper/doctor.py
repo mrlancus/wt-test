@@ -45,7 +45,7 @@ def _decoder() -> str:
 
 def _share(root: Path) -> str:
     if not root.is_dir():
-        raise RuntimeError(f"{root} not reachable (is W: mapped? `net use W: \\\\deskhub.local\\wt /user:wtshare /persistent:yes`)")
+        raise RuntimeError(f"{root} not reachable (is desk-hub on, and the password saved? `cmdkey /add:deskhub.local /user:wtshare /pass`)")
     probe = root / f".doctor-{id(root)}.tmp"
     probe.write_bytes(b"ok")
     probe.unlink()

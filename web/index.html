@@ -53,7 +53,8 @@
       <p><a href="https://github.com/mrlancus/wt-test/releases/download/helper/wt-helper.exe">wt-helper.exe</a>
         <span class="dim">— newest build. Records battles, takes new replays, stores them on desk-hub and sends results here.</span></p>
       <p class="dim">Once, in a Command Prompt in the download folder:</p>
-      <pre>wt-helper.exe install --share W:/ --key &lt;this site's key&gt; --user-id &lt;your War Thunder userId&gt;
+      <pre>cmdkey /add:deskhub.local /user:wtshare /pass
+wt-helper.exe install --share \\deskhub.local\wt --key &lt;this site's key&gt; --user-id &lt;your War Thunder userId&gt;
 wt-helper.exe doctor</pre>
     </section>
     <section><h2>Data health</h2><div id="health" class="dim">…</div></section>

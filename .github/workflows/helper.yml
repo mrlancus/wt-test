@@ -41,4 +41,4 @@ jobs:
           gh release delete helper --cleanup-tag --yes || true
           gh release create helper dist/wt-helper.exe --target "$GITHUB_SHA" --latest \
             --title "wt-helper (build ${GITHUB_RUN_NUMBER})" \
-            --notes "Built from ${GITHUB_SHA::7}. Download wt-helper.exe, then run: wt-helper.exe install --share W:/ --key <website key> --user-id <your userId>"
+            --notes "Built from ${GITHUB_SHA::7}. Download wt-helper.exe, then run: cmdkey /add:deskhub.local /user:wtshare /pass, then wt-helper.exe install --share \\\\deskhub.local\\wt --key <website key> --user-id <your userId>"
